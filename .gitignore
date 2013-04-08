@@ -6,8 +6,15 @@
 # Compiled Dynamic libraries
 *.so
 *.dylib
-
 # Compiled Static libraries
 *.lai
 *.la
 *.a
+/*.filters
+/*.sdf
+/*.opensdf
+/*.sln
+/*.suo
+/*.user
+/*.vcxproj
+/test/

@@ -13,3 +13,8 @@ TODO:
 7.internal event
 8.thread
 9.stat
+
+
+NOTE:
+log要能随意变更fd
+禁止挂载程序直接访问框架成员
