@@ -77,7 +77,7 @@ int main(int argc, char** argv)
     config.configure();
 
     calypso_main_t runner;
-    runner.intialize("demo.json");
+    runner.initialize("demo.json");
 
     demo_app_t app;
     app.main_inst_ = &runner;

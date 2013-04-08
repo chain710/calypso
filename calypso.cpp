@@ -31,7 +31,7 @@ calypso_main_t::~calypso_main_t()
     }
 }
 
-int calypso_main_t::intialize(const char* bootstrap_path)
+int calypso_main_t::initialize(const char* bootstrap_path)
 {
     int ret;
     calypso_bootstrap_config_t bootstrap_config;
@@ -89,6 +89,13 @@ int calypso_main_t::intialize(const char* bootstrap_path)
         exit(-1);
     }
 
+    running_app_ = 0;
+    for (int i = 0; i < CALYPSO_APP_THREAD_SWITCH_NUM; ++i)
+    {
+        memset(&app_ctx_[i], 0, sizeof(app_ctx_[i]));
+        app_ctx_[i].th_status_ = app_thread_context_t::app_stop;
+    }
+
     return 0;
 }
 
@@ -109,13 +116,17 @@ void calypso_main_t::main()
 
         // wait network
         evt_num = network_.wait(onevent_func, NULL);
-        process_appthread_msg(thread_ctx_);
 
+        for (int i = 0; i < CALYPSO_APP_THREAD_SWITCH_NUM; ++i)
+        {
+            process_appthread_msg(app_ctx_[i]);
+        }
+        
         // need restart?
-        if (need_restart_app() || thread_ctx_.fatal_)
+        if (need_restart_app() || app_ctx_[running_app_].fatal_)
         {
             clear_restart_app_sig();
-            ret = restart_appthread(thread_ctx_, deprecated_ctx_);
+            ret = restart_app();
             if (ret < 0)
             {
                 C_FATAL("restart appthread on sig ret %d", ret);
@@ -123,9 +134,7 @@ void calypso_main_t::main()
             }
         }
 
-        // 处理deprecated线程消息
-        check_deprecated_threads(deprecated_ctx_);
-
+        check_deprecated_threads(app_ctx_[(running_app_+1)%CALYPSO_APP_THREAD_SWITCH_NUM]);
         if (0 == evt_num)
         {
             usleep(50000);
@@ -222,9 +231,7 @@ void calypso_main_t::run()
 {
     init_rand();
 
-    memset(&deprecated_ctx_, 0, sizeof(deprecated_ctx_));
-    deprecated_ctx_.th_status_ = app_thread_context_t::app_stop;
-    int ret = create_appthread(thread_ctx_);
+    int ret = create_appthread(app_ctx_[running_app_]);
     if (ret < 0)
     {
         C_FATAL("create appthread failed %d", ret);
@@ -312,7 +319,8 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
 int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const char* data, size_t len )
 {
     if (NULL == data) len = 0;
-    int rctx = thread_ctx_.in_->produce_reserve(sizeof(msgctx)+len);
+    app_thread_context_t& cur_ctx = app_ctx_[running_app_];
+    int rctx = cur_ctx.in_->produce_reserve(sizeof(msgctx)+len);
     if (rctx < 0)
     {
         C_ERROR("produce_reserve failed ret %d, oom?", rctx);
@@ -322,7 +330,7 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
     bool rq_err = true;
     do 
     {
-        int ret = thread_ctx_.in_->produce_append((const char*)&msgctx, sizeof(msgctx));
+        int ret = cur_ctx.in_->produce_append((const char*)&msgctx, sizeof(msgctx));
         if (ret < 0)
         {
             C_FATAL("produce msg ctx failed ret %d", ret);
@@ -331,7 +339,7 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
 
         if (data && len > 0)
         {
-            ret = thread_ctx_.in_->produce_append(data, len);
+            ret = cur_ctx.in_->produce_append(data, len);
             if (ret < 0)
             {
                 C_FATAL("produce msg content failed ret %d", ret);
@@ -339,7 +347,7 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
             }
         }
 
-        ret = thread_ctx_.in_->produce_append(NULL, 0);
+        ret = cur_ctx.in_->produce_append(NULL, 0);
         if (ret < 0)
         {
             C_FATAL("finishing produce msg failed ret %d", ret);
@@ -352,6 +360,7 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
     if (rq_err)
     {
         C_FATAL("find error in ring queue, try restart app thread! data(%p,%d)", data, (int)len);
+        cur_ctx.fatal_ = 1;
         return -1;
     }
 
@@ -441,7 +450,10 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
 
 void calypso_main_t::cleanup()
 {
-    stop_appthread(thread_ctx_);
+    for (int i = 0; i < CALYPSO_APP_THREAD_SWITCH_NUM; ++i)
+    {
+        stop_appthread(app_ctx_[i]);
+    }
 }
 
 void calypso_main_t::stop_appthread(app_thread_context_t& thread_ctx)
@@ -471,7 +483,7 @@ int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
     int proc_num = 0;
     int data_len;
     
-    while (true)
+    while (thread_ctx.th_status_ != app_thread_context_t::app_stop)
     {
         clen = thread_ctx.out_->get_consume_len();
         if (clen <= 0)
@@ -519,20 +531,31 @@ int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
     return proc_num;
 }
 
-int calypso_main_t::restart_appthread(app_thread_context_t& thread_ctx, app_thread_context_t& deprecated_ctx)
+int calypso_main_t::restart_app()
+{
+    int next_idx = (running_app_+1)%CALYPSO_APP_THREAD_SWITCH_NUM;
+    int ret = restart_appthread(app_ctx_[running_app_], app_ctx_[next_idx]);
+    if (ret < 0)
+    {
+        return ret;
+    }
+
+    running_app_ = next_idx;
+    return ret;
+}
+
+int calypso_main_t::restart_appthread(app_thread_context_t& old_ctx, app_thread_context_t& new_ctx)
 {
     // NOTE:从此不再向旧线程发送消息，但是依然会处理它的输出
-    if (deprecated_ctx.th_status_ != app_thread_context_t::app_stop)
+    if (new_ctx.th_status_ != app_thread_context_t::app_stop)
     {
-        C_WARN("deprecated thread ctx still running(%d)? this may cauz memleak", deprecated_ctx.th_status_);
+        C_WARN("deprecated thread ctx still running(%d)? this may cauz memleak", new_ctx.th_status_);
         // dont exit
     }
 
-    memcpy(&deprecated_ctx, &thread_ctx, sizeof(thread_ctx));
-    deprecated_ctx.th_status_ = app_thread_context_t::app_deprecated;
-    deprecated_ctx.deprecated_time_ = nowtime_;
-
-    int ret = create_appthread(thread_ctx);
+    old_ctx.th_status_ = app_thread_context_t::app_deprecated;
+    old_ctx.deprecated_time_ = nowtime_;
+    int ret = create_appthread(new_ctx);
     if (ret < 0)
     {
         C_ERROR("create_appthread failed ret %d", ret);
@@ -548,9 +571,6 @@ void calypso_main_t::check_deprecated_threads(app_thread_context_t& thread_ctx)
     {
         return;
     }
-
-    // check deprecated msg
-    process_appthread_msg(thread_ctx);
 
     // stop thread?
     if (nowtime_ - thread_ctx.deprecated_time_ >= runtime_config_.get_deprecated_thread_life()
