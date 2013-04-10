@@ -83,8 +83,6 @@ int calypso_network_t::init( int fd_capacity, int max_fired_num, dynamic_allocat
 
 int calypso_network_t::wait(onevent_callback callback, void* up)
 {
-    netlink_t::refresh_nowtime();
-
     int event_num = epoll_wait(epfd_, fired_events_, max_fired_num_, 0);
     if (event_num < 0)
     {
@@ -99,13 +97,13 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
     unsigned int events;
     int link_idx;
     char log_ndc[128];
-    bool sock_err;
+    bool link_err;
     bool cancel_epollout;
     epoll_event epevent;
 
     for (int i = 0; i < event_num; ++i)
     {
-        sock_err = false;
+        link_err = false;
         cancel_epollout = false;
         events = 0;
         link_idx = -1;
@@ -123,9 +121,9 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
         if (fired_events_[i].events & (EPOLLERR | EPOLLHUP))
         {
             events |= error_event;
-            int sock_err = link->get_sock_error();
-            C_ERROR("netlink encount error, maybe reset or timeout? sockerr is %d", sock_err);
-            sock_err = true;
+            int sock_errno = link->get_sock_error();
+            C_ERROR("netlink encount error, maybe reset or timeout? sockerr is %d", sock_errno);
+            link_err = true;
         }
 
         if (fired_events_[i].events & EPOLLIN)
@@ -159,7 +157,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
                 {
                     C_ERROR("connecting sock encount error %d, close it", ret);
                     link->close();
-                    sock_err = true;
+                    link_err = true;
                 }
                 else
                 {
@@ -168,7 +166,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
                     if (ret < 0)
                     {
                         C_ERROR("link set est failed, ret %d\n", ret);
-                        sock_err = true;
+                        link_err = true;
                     }
                 }
             }
@@ -178,7 +176,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
                 if (ret < 0)
                 {
                     C_ERROR("link send remaining data failed ret %d", ret);
-                    sock_err = true;
+                    link_err = true;
                 }
                 else if (!link->has_data_in_sendbuf())
                 {
@@ -197,7 +195,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
         ++envoke_num;
 
         // 取消监听/监听epollout
-        if (!link->is_closed() && !sock_err && (cancel_epollout | link->has_data_in_sendbuf()))
+        if (!link->is_closed() && !link_err && (cancel_epollout | link->has_data_in_sendbuf()))
         {
             memset(&epevent, 0, sizeof(epevent));
             epevent.data.fd = link->getfd();
@@ -218,11 +216,11 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
             if (ret < 0)
             {
                 C_ERROR("add connecting fd %d to epoll failed, errno %d", link->getfd(), errno);
-                sock_err = true;
+                link_err = true;
             }
         }
 
-        if (link->is_closed() || sock_err)
+        if (link->is_closed() || link_err)
         {
             if (netlink_t::accept_link == link->get_link_type())
             {
@@ -304,7 +302,8 @@ int calypso_network_t::recycle_used_link( netlink_t& link )
         return -1;
     }
 
-    link.close();
+    C_TRACE("recycle link[%d]", idx);
+    link.clear();
     int ret = link_list_->move_before(used_list_, idx, used_list_.head_);
     if (ret < 0)
     {
@@ -449,6 +448,11 @@ int calypso_network_t::recover_one_link( int idx, netlink_t& node, void* up )
     }
 
     ret = node.recover();
+    char remote_addr_str[64];
+    char local_addr_str[64];
+    C_TRACE("link(r:%s, l:%s) recover ret %d", 
+        node.get_remote_addr_str(remote_addr_str, sizeof(remote_addr_str)), 
+        node.get_local_addr_str(local_addr_str, sizeof(local_addr_str)), ret);
     if (ret < 0)
     {
         C_ERROR("netlink[%d] recover failed, ret %d", idx, ret);
@@ -552,7 +556,6 @@ int calypso_network_t::create_link( const netlink_config_t::config_item_t& confi
         if (config.keep_alive_) opt.flag_ |= netlink_t::lf_keepalive;
     }
 
-    opt.flag_ = 0;
     opt.sys_rcvbuf_size_ = config.sys_recv_buffer_;
     opt.sys_sndbuf_size_ = config.sys_send_buffer_;
     opt.usr_rcvbuf_size_ = config.usr_recv_buffer_;
@@ -562,47 +565,39 @@ int calypso_network_t::create_link( const netlink_config_t::config_item_t& confi
     do 
     {
         ret = link->init(opt);
+        // 先设置参数，以免configure中途失败无法recover
+        if (config.bind_ip_[0] != '\0' || config.bind_port_ > 0)
+        {
+            link->set_bind_addr(config.bind_ip_, config.bind_port_);
+        }
+        
+        if (netlink_t::server_link == link->get_link_type())
+        {
+            link->set_listen_backlog(config.back_log_);
+        }
+        else
+        {
+            link->set_remote_addr(config.ip_, config.port_);
+        }
+
         if (ret < 0)
         {
             C_ERROR("init link %s(%s:%d) failed, ret %d", config.type_, config.ip_, config.port_, ret);
             break;
         }
 
-        if (config.bind_ip_[0] != '\0' || config.bind_port_ > 0)
+        ret = link->configure();
+        if (ret < 0)
         {
-            ret = link->bind(config.bind_ip_, config.bind_port_);
-            if (ret < 0)
-            {
-                C_ERROR("bind link %s(%s:%d) failed, ret %d", config.type_, config.bind_ip_, config.bind_port_, ret);
-                break;
-            }
-        }
-
-        if (netlink_t::server_link == link->get_link_type())
-        {
-            ret = link->listen(config.back_log_);
-            if (ret < 0)
-            {
-                C_ERROR("listen (%s:%d) failed, ret %d", config.bind_ip_, config.bind_port_, ret);
-                break;
-            }
-
-            C_DEBUG("listen (%s:%d) succ", config.bind_ip_, config.bind_port_);
-        }
-        else
-        {
-            ret = link->connect(config.ip_, config.port_);
-            if (ret < 0)
-            {
-                C_ERROR("connect (%s:%d) failed, ret %d\n", config.ip_, config.port_, ret);
-                break;
-            }
+            C_ERROR("link(%s) configure failed, bind %s:%d, remote %s:%d, ret %d", 
+                config.type_, config.bind_ip_, config.bind_port_, config.ip_, config.port_, ret);
+            break;
         }
 
         succ = true;
     } while (false);
 
-    // close
+    // move to error list, waiting for recovery
     if (!succ)
     {
         move_link_to_error_list(*link);

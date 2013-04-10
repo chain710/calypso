@@ -11,10 +11,10 @@
 
 enum net_event_t
 {
-    connect_event = 0x00000001,
-    data_arrival_event = 0x00000002,
-    error_event = 0x00000004,
-    newlink_event = 0x00000008,
+    connect_event = 0x00000001, // connect成功
+    data_arrival_event = 0x00000002,    // 有数据可读
+    error_event = 0x00000004,   // 出错
+    newlink_event = 0x00000008, // 新连接accept
 };
 
 class calypso_network_t
@@ -33,7 +33,7 @@ public:
     // 按配置创建/关闭链路，返回创建netlink的下标
     int create_link(const netlink_config_t::config_item_t& config);
     int close_link(int idx);
-    void refresh_nowtime(time_t t) { nowtime_ = t; }
+    void refresh_nowtime(time_t t) { nowtime_ = t; netlink_t::refresh_nowtime(t); }
     netlink_t* find_link(int idx) { return link_list_->get(idx); }
 private:
     calypso_network_t(const calypso_network_t&) {}

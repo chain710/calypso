@@ -23,7 +23,7 @@ int demo_app_t::handle_msgpack( msgpack_context_t ctx, const char* pack, size_t 
     {
         char hello_msg[128];
         snprintf(hello_msg, sizeof(hello_msg), "welcome to rapture!\r\n");
-        return calypso_send_msgpack_by_ctx(main_inst_, ctx, hello_msg, strlen(hello_msg) + 1);
+        return calypso_send_msgpack_by_ctx(main_inst_, ctx, hello_msg, strlen(hello_msg));
     }
     else
     {
@@ -73,8 +73,12 @@ int main(int argc, char** argv)
     signal(SIGQUIT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    BasicConfigurator config;
-    config.configure();
+    C_LOG_INST.setLogLevel(TRACE_LOG_LEVEL);
+    SharedAppenderPtr myAppender(new ConsoleAppender());
+    myAppender->setName("a1");
+    C_LOG_INST.addAppender(myAppender);
+    std::auto_ptr<Layout> myLayout = std::auto_ptr<Layout>(new log4cplus::PatternLayout(LOG4CPLUS_TEXT("[%-5p][%x][%l] %m%n")));
+    myAppender->setLayout(myLayout);
 
     calypso_main_t runner;
     runner.initialize("demo.json");

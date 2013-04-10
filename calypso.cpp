@@ -96,6 +96,8 @@ int calypso_main_t::initialize(const char* bootstrap_path)
         app_ctx_[i].th_status_ = app_thread_context_t::app_stop;
     }
 
+    nowtime_ = time(NULL);
+    network_.refresh_nowtime(nowtime_);
     return 0;
 }
 
@@ -313,7 +315,14 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
         return -1;
     }
 
-    return link->send(data, len);
+    int ret = link->send(data, len);
+    C_TRACE("send data(%p, %d) to %s ret %d", data, (int)len, link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)), ret);
+    if (ret < 0)
+    {
+        C_ERROR("send data(%p, %d) to %s failed(%d)", data, (int)len, link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)), ret);
+    }
+
+    return ret;
 }
 
 int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const char* data, size_t len )
@@ -578,6 +587,7 @@ void calypso_main_t::check_deprecated_threads(app_thread_context_t& thread_ctx)
     {
         C_INFO("now stopping deprecated appthread!%s", "");
         stop_appthread(thread_ctx);
+        C_INFO("deprecated appthread stopped!%s", "");
     }
 }
 
@@ -628,7 +638,6 @@ void* _app_thread_proc(void* args)
             if (ret < 0)
             {
                 C_FATAL("consume msg queue failed ret %d, broken pipe?", ret);
-                // TODO：主线程需要重新创建app线程？
                 fatal = true;
                 break;
             }

@@ -26,14 +26,14 @@ netlink_t::netlink_t()
 
 netlink_t::~netlink_t()
 {
-    close();
+    clear();
 }
 
 int netlink_t::init( link_opt_t opt, int fd )
 {
     if (fd_ >= 0)
     {
-        close();
+        clear();
     }
 
     fd_ = fd;
@@ -70,17 +70,12 @@ int netlink_t::accept( netlink_t* child ) const
 
 int netlink_t::bind( const char* ip, unsigned short port )
 {
-    local_addr_.sin_family = AF_INET;
-    local_addr_.sin_port = htons(port);
-    if (ip && ip[0] != '\0')
+    if (opt_.ltype_ == accept_link)
     {
-        local_addr_.sin_addr.s_addr = inet_addr(ip);
-    }
-    else
-    {
-        local_addr_.sin_addr.s_addr = htonl(INADDR_ANY);
+        return -1;
     }
 
+    set_bind_addr(ip, port);
     return ::bind(fd_, (sockaddr*)&local_addr_, sizeof(local_addr_));
 }
 
@@ -88,7 +83,7 @@ int netlink_t::listen( int backlog )
 {
     if (opt_.ltype_ != server_link) return -1;
     last_active_time_ = now_time_;
-    listen_backlog_ = backlog;
+    set_listen_backlog(backlog);
     int ret = ::listen(fd_, listen_backlog_);
     if (ret < 0)
     {
@@ -105,9 +100,7 @@ int netlink_t::connect( const char* ip, unsigned short port )
         return -1;
     }
 
-    remote_addr_.sin_family = AF_INET;
-    remote_addr_.sin_port = htons(port);
-    remote_addr_.sin_addr.s_addr = inet_addr(ip);
+    set_remote_addr(ip, port);
     return do_connect();
 }
 
@@ -202,6 +195,7 @@ int netlink_t::setup()
     if (err < 0)
     {
         close();
+        return -1;
     }
 
     return 0;
@@ -405,6 +399,12 @@ int netlink_t::send( const char* buf, int len )
 
 int netlink_t::close()
 {
+    do_close();
+    return 0;
+}
+
+int netlink_t::clear()
+{
     int err = 0;
     do_close();
     memset(&local_addr_, 0, sizeof(local_addr_));
@@ -433,24 +433,7 @@ int netlink_t::recover()
     {
         do_close();
         if (setup() < 0) return -1;
-        if (AF_INET == local_addr_.sin_family)
-        {
-            int ret = ::bind(fd_, (sockaddr*)&local_addr_, sizeof(local_addr_));
-            if (ret < 0)
-            {
-                return -1;
-            }
-        }
-
-        switch (opt_.ltype_)
-        {
-        case client_link:
-            return do_connect();
-        case server_link:
-            return listen(listen_backlog_);
-        default:
-            break;
-        }
+        return configure();
     }
 
     return -1;
@@ -500,14 +483,15 @@ int netlink_t::pop_recv_buffer( int len )
 
 const char* netlink_t::get_local_addr_str( char* buf, int size ) const
 { 
-    socklen_t len = sizeof(local_addr_);  
-    int ret = getsockname(fd_, (sockaddr *)&local_addr_, &len);
+    sockaddr_in laddr;
+    socklen_t len = sizeof(laddr);  
+    int ret = getsockname(fd_, (sockaddr *)&laddr, &len);
     if (ret < 0)
     {
         return NULL;
     }
 
-    snprintf(buf, size, "%s:%d", inet_ntoa(local_addr_.sin_addr), ntohs(local_addr_.sin_port));
+    snprintf(buf, size, "%s:%d", inet_ntoa(laddr.sin_addr), ntohs(laddr.sin_port));
     return buf;
 }
 
@@ -554,4 +538,52 @@ int netlink_t::mod_status( int status )
     }
 
     return 0;
+}
+
+void netlink_t::set_bind_addr( const char* ip, unsigned short port )
+{
+    local_addr_.sin_family = AF_INET;
+    local_addr_.sin_port = htons(port);
+    if (ip && ip[0] != '\0')
+    {
+        local_addr_.sin_addr.s_addr = inet_addr(ip);
+    }
+    else
+    {
+        local_addr_.sin_addr.s_addr = htonl(INADDR_ANY);
+    }
+}
+
+void netlink_t::set_listen_backlog( int backlog )
+{
+    listen_backlog_ = backlog;
+}
+
+void netlink_t::set_remote_addr( const char* ip, unsigned short port )
+{
+    remote_addr_.sin_family = AF_INET;
+    remote_addr_.sin_port = htons(port);
+    remote_addr_.sin_addr.s_addr = inet_addr(ip);
+}
+
+int netlink_t::configure()
+{
+    if (AF_INET == local_addr_.sin_family)
+    {
+        int ret = ::bind(fd_, (sockaddr*)&local_addr_, sizeof(local_addr_));
+        if (ret < 0)
+        {
+            return -1;
+        }
+    }
+
+    switch (opt_.ltype_)
+    {
+    case client_link:
+        return do_connect();
+    case server_link:
+        return listen(listen_backlog_);
+    default:
+        return 0;
+    }
 }

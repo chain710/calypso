@@ -11,6 +11,7 @@ class netlink_t
 public:
     struct link_opt_t
     {
+        // see link_type_t
         int ltype_;
         int usr_sndbuf_size_;
         int usr_rcvbuf_size_;
@@ -53,15 +54,23 @@ public:
     virtual ~netlink_t();
     void reg_allocator(dynamic_allocator_t& allocator) { allocator_ = &allocator; }
     void reg_status_change_callback(on_status_change_callback callback) { on_status_change_ = callback; }
+    void set_bind_addr(const char* ip, unsigned short port);
+    void set_listen_backlog(int backlog);
+    void set_remote_addr(const char* ip, unsigned short port);
+    // 初始化缓冲区，链路状态，创建fd
     int init(link_opt_t opt, int fd = -1);
+    // 根据配置操作socket
+    int configure();
     int accept(netlink_t* child) const;
     int bind(const char* ip, unsigned short port);
     int listen(int backlog);
     int connect(const char* ip, unsigned short port);
     int recv();
     int send(const char* buf, int len);
-    // 关闭链路，同时归还缓存
+    // 关闭链路，但是不归还缓存，可以recover
     int close();
+    // 关闭链路，归还缓存，不能recover了
+    int clear();
     // send/recv/accept操作后发现close/error了，可以调用recover重新建立连接/监听端口，注意fd需要重新加入epoll
     int recover();
     int getfd() const { return fd_; }
@@ -73,7 +82,7 @@ public:
 
     // 获得接收缓存头指针和长度
     char* get_recv_buffer(int& len);
-    // 清除指定长度的接收缓冲区，返回实际清除长度, -1表示全部
+    // 清除指定长度的接收缓冲区，返回实际清除长度, len=-1表示全部
     int pop_recv_buffer(int len);
 
     int get_status() const { return status_; }
@@ -89,7 +98,7 @@ public:
     time_t get_last_active_time() const { return last_active_time_; }
     // 是否有数据在用户发送缓冲区中待发送
     bool has_data_in_sendbuf() const { return send_buf_->used_ > 0; }
-    static void refresh_nowtime() { now_time_ = time(NULL); }
+    static void refresh_nowtime(time_t t) { now_time_ = t; }
 private:
     // deny copy-cons
     netlink_t(const netlink_t& c) {}
