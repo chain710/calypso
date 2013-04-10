@@ -21,9 +21,15 @@ public:
     int dealloc(int idx);
     int get_capacity() const { return capacity_; }
     int get_buffer_size() const { return size_; }
-    int get_used_num() const { return used_list_.num_; }
-    int get_free_num() const { return capacity_ - used_list_.num_; }
+    int get_used_num() const { return buffer_list_->get_num(lused); }
+    int get_free_num() const { return capacity_ - get_used_num(); }
 private:
+    enum list_id_t
+    {
+        lfree = 0,
+        lused = 1,
+    };
+
     struct buffer_node_t
     {
         unsigned int flag_;
@@ -37,7 +43,6 @@ private:
     int init_buffer_node(int idx, buffer_node_t*& node, void* up);
 
     linked_list_t<buffer_node_t*>* buffer_list_;
-    linked_list_flag_t used_list_;
     int size_;
     int capacity_;
     char* buffers_;

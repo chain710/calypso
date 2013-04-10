@@ -25,6 +25,7 @@ class linked_list_t
 public:
     struct list_node_t
     {
+        int lid_;
         int prev_;
         int next_;
     };
@@ -32,29 +33,27 @@ public:
     typedef std::tr1::function<int (int idx, T& node, void*)> walk_list_callback;
     typedef std::tr1::function<int (int idx, const T& node, void*)> walk_list_const_callback;
 
-    linked_list_t(int max_length);
+    // 内部保留一个list(0)记录尚未分配的，故实际listnum是max_list+1
+    linked_list_t(int max_length, int max_list);
     virtual ~linked_list_t();
     
     // 交换两个元素在链表中的顺序
-    int swap(linked_list_flag_t& flag, int left, int right);
+    int swap(int left, int right);
     // move node from flag(head) to list(tail)
-    int remove(linked_list_flag_t& flag);
+    int remove(int lid);
     // move node from list(head) to flag(tail)
-    int append(linked_list_flag_t& flag);
+    int append(int lid);
     // move node from src.head to dst.tail
-    int move(linked_list_flag_t& src, linked_list_flag_t& dst);
+    int move(int src_lid, int dst_lid);
     // move src(flag) after dst
-    int move_after(linked_list_flag_t& flag, int src, int dst);
+    int move_after(int src, int dst);
     // move src(flag) before dst
-    int move_before( linked_list_flag_t& flag, int src, int dst );
+    int move_before( int src, int dst );
 
-    linked_list_flag_t get_flag() const { return flag_; }
-    linked_list_flag_t& get_ref_flag() { return flag_; }
-
-    void walk_list(linked_list_flag_t flag, void* up, walk_list_callback callback);
-    void walk_list(linked_list_flag_t flag, void* up, walk_list_const_callback callback) const;
+    void walk_list(int lid, void* up, walk_list_callback callback);
+    void walk_list(int lid, void* up, walk_list_const_callback callback) const;
     void walk_list(void* up, walk_list_callback callback);
-    void walk_list(int max_walk, linked_list_flag_t flag, void* up, walk_list_callback callback);
+    void walk_list(int max_walk, int lid, void* up, walk_list_callback callback);
     T* get(int idx);
     const T* get(int idx) const;
     int get_idx(const T* data) const;
@@ -62,48 +61,88 @@ public:
     int get_prev(const T* data) const;
     void reset();
     int get_length() const { return list_length_; }
+    inline int get_num(int lid) const
+    {
+        if (!is_valid_list(lid)) return -1;
+        return lflag_[lid].num_;
+    }
+
+    inline int get_head(int lid) const
+    {
+        if (!is_valid_list(lid)) return -1;
+        return lflag_[lid].head_;
+    }
+
+    inline int get_tail(int lid) const
+    {
+        if (!is_valid_list(lid)) return -1;
+        return lflag_[lid].tail_;
+    }
+
+    inline int get_list_id(int idx) const
+    {
+        if (!is_valid_index(idx)) return -1;
+        return nodes_[idx].lid_;
+    }
 private:
     linked_list_t(const linked_list_t& l){}
     void init_list();
     void init_node(list_node_t& n) { n.prev_ = -1; n.next_ = -1; }
-    bool is_valid_index(int i) const { return i >= 0 && i < list_length_; }
-    linked_list_flag_t flag_;
+    inline bool is_valid_index(int i) const { return i >= 0 && i < list_length_; }
+    inline bool is_valid_list(int i) const { return i >= 0 && i <= max_list_; }
+    linked_list_flag_t* lflag_;
     list_node_t* nodes_;
     T* data_;
     int list_length_;
+    int max_list_;
 };
 
 template<typename T>
-linked_list_t<T>::linked_list_t( int max_length )
+linked_list_t<T>::linked_list_t( int max_length, int max_list )
 {
     nodes_ = new list_node_t[max_length];
     data_ = new T[max_length];
+    lflag_ = new linked_list_flag_t[max_list+1];
     list_length_ = max_length;
+    max_list_ = max_list;
     init_list();
 }
 
 template<typename T>
 linked_list_t<T>::~linked_list_t()
 {
-    delete []nodes_;
+    if (lflag_)
+    {
+        delete []lflag_;
+        lflag_ = NULL;
+    }
+
+    if (nodes_)
+    {
+        delete []nodes_;
+        nodes_ = NULL;
+    }
+
+    if (data_)
+    {
+        delete []data_;
+        data_ = NULL;
+    }
+    
     list_length_ = 0;
-    empty_list_flag(flag_);
-    data_ = NULL;
-    nodes_ = NULL;
 }
 
 template<typename T>
-int linked_list_t<T>::swap( linked_list_flag_t& flag, int left, int right )
+int linked_list_t<T>::swap( int left, int right )
 {
-    if (right == left)
-    {
-        return 0;
-    }
-
-    if (!is_valid_index(left) || !is_valid_index(right))
+    if (!is_valid_index(left) || !is_valid_index(right)
+        || nodes_[left].lid_ != nodes_[right].lid_)
     {
         return -1;
     }
+
+    if (right == left) return 0;
+    linked_list_flag_t& flag = lflag_[nodes_[left].lid_];
 
     int lp = nodes_[left].prev_;
     int ln = nodes_[left].next_;
@@ -140,20 +179,27 @@ int linked_list_t<T>::swap( linked_list_flag_t& flag, int left, int right )
 }
 
 template<typename T>
-int linked_list_t<T>::remove( linked_list_flag_t& flag )
+int linked_list_t<T>::remove( int lid )
 {
-    return move(flag, flag_);
+    return move(lid, 0);
 }
 
 template<typename T>
-int linked_list_t<T>::append( linked_list_flag_t& flag )
+int linked_list_t<T>::append( int lid )
 {
-    return move(flag_, flag);
+    return move(0, lid);
 }
 
 template<typename T>
-int linked_list_t<T>::move( linked_list_flag_t& src, linked_list_flag_t& dst )
+int linked_list_t<T>::move( int src_lid, int dst_lid )
 {
+    if (!is_valid_list(src_lid) || !is_valid_list(dst_lid))
+    {
+        return -1;
+    }
+
+    linked_list_flag_t& src = lflag_[src_lid];
+    linked_list_flag_t& dst = lflag_[dst_lid];
     if (!is_valid_index(src.head_) || dst.tail_ >= list_length_)
     {
         return -1;
@@ -188,17 +234,18 @@ int linked_list_t<T>::move( linked_list_flag_t& src, linked_list_flag_t& dst )
 
     mnode.prev_ = dst.tail_;
     mnode.next_ = -1;
+    mnode.lid_ = dst_lid;
     dst.tail_ = midx;
     ++dst.num_;
     return 0;
 }
 
 template<typename T>
-void linked_list_t<T>::walk_list( linked_list_flag_t flag, void* up, walk_list_callback callback )
+void linked_list_t<T>::walk_list( int lid, void* up, walk_list_callback callback )
 {
-    // FIXME: 如果在callback里修改list?
+    if (!is_valid_list(lid)) return;
     int ret;
-    for (int i = flag.head_; i >= 0; )
+    for (int i = lflag_[lid].head_; i >= 0; )
     {
         ret = callback(i, data_[i], up);
         i = (i == ret)? nodes_[i].next_: ret;
@@ -206,41 +253,28 @@ void linked_list_t<T>::walk_list( linked_list_flag_t flag, void* up, walk_list_c
 }
 
 template<typename T>
-void linked_list_t<T>::walk_list( int max_walk, linked_list_flag_t flag, void* up, walk_list_callback callback )
+void linked_list_t<T>::walk_list( int lid, void* up, walk_list_const_callback callback ) const
 {
+    if (!is_valid_list(lid)) return;
     int ret;
-    int idx = flag.head_;
+    for (int i = lflag_[lid].head_; i >= 0; )
+    {
+        ret = callback(i, data_[i], up);
+        i = (i == ret)? nodes_[i].next_: ret;
+    }
+}
+
+template<typename T>
+void linked_list_t<T>::walk_list( int max_walk, int lid, void* up, walk_list_callback callback )
+{
+    if (!is_valid_list(lid)) return;
+    int ret;
+    int idx = lflag_[lid].head_;
     for (int i = 0; idx >= 0 && i < max_walk; ++i)
     {
         ret = callback(idx, data_[idx], up);
         idx = (idx == ret)? nodes_[idx].next_: ret;
     }
-}
-
-template<typename T>
-void linked_list_t<T>::walk_list( linked_list_flag_t flag, void* up, walk_list_const_callback callback ) const
-{
-    int ret;
-    for (int i = flag.head_; i >= 0; )
-    {
-        ret = callback(i, data_[i], up);
-        i = (i == ret)? nodes_[i].next_: ret;
-    }
-}
-
-template<typename T>
-void linked_list_t<T>::init_list()
-{
-    flag_.head_ = 0;
-    flag_.tail_ = list_length_ - 1;
-    flag_.num_ = list_length_;
-    for (int i = 0; i < list_length_; ++i)
-    {
-        nodes_[i].prev_ = i - 1;
-        nodes_[i].next_ = i + 1;
-    }
-
-    nodes_[flag_.tail_].next_ = -1;
 }
 
 template<typename T>
@@ -251,6 +285,27 @@ void linked_list_t<T>::walk_list( void* up, walk_list_callback callback )
         // simply ignore return of callback
         callback(i, data_[i], up);
     }
+}
+template<typename T>
+void linked_list_t<T>::init_list()
+{
+    for (int i = 0; i <= max_list_; ++i)
+    {
+        empty_list_flag(lflag_[i]);
+    }
+
+    // all belong to listflag[0]
+    lflag_[0].head_ = 0;
+    lflag_[0].tail_ = list_length_ - 1;
+    lflag_[0].num_ = list_length_;
+    for (int i = 0; i < list_length_; ++i)
+    {
+        nodes_[i].lid_ = 0;
+        nodes_[i].prev_ = i - 1;
+        nodes_[i].next_ = i + 1;
+    }
+
+    nodes_[list_length_ - 1].next_ = -1;
 }
 
 template<typename T>
@@ -318,15 +373,16 @@ void linked_list_t<T>::reset()
 }
 
 template<typename T>
-int linked_list_t<T>::move_after( linked_list_flag_t& flag, int src, int dst )
+int linked_list_t<T>::move_after( int src, int dst )
 {
-    if (src == dst) return 0;
-
-    if (!is_valid_index(src) || !is_valid_index(dst))
+    if (!is_valid_index(src) || !is_valid_index(dst)
+        || nodes_[src].lid_ != nodes_[dst].lid_)
     {
         return -1;
     }
 
+    linked_list_flag_t& flag = lflag_[nodes_[src].lid_];
+    if (src == dst) return 0;
     int sp = nodes_[src].prev_;
     int sn = nodes_[src].next_;
     
@@ -357,15 +413,16 @@ int linked_list_t<T>::move_after( linked_list_flag_t& flag, int src, int dst )
 }
 
 template<typename T>
-int linked_list_t<T>::move_before( linked_list_flag_t& flag, int src, int dst )
+int linked_list_t<T>::move_before( int src, int dst )
 {
-    if (src == dst) return 0;
-
-    if (!is_valid_index(src) || !is_valid_index(dst))
+    if (!is_valid_index(src) || !is_valid_index(dst)
+        || nodes_[src].lid_ != nodes_[dst].lid_)
     {
         return -1;
     }
 
+    if (src == dst) return 0;
+    linked_list_flag_t& flag = lflag_[nodes_[src].lid_];
     int sp = nodes_[src].prev_;
     int sn = nodes_[src].next_;
 

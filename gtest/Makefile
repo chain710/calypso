@@ -90,4 +90,4 @@ $(TESTS) : $(ALL_OBJS)
 	@echo "now building:" $@
 	@echo "dependency:" $($@_dep)
 	rm -f $@
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@  $($@_dep) -lpthread $($@_lib)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@  $($@_dep) -lpthread -llog4cplus $($@_lib)

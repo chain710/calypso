@@ -39,7 +39,7 @@ private:
     calypso_network_t(const calypso_network_t&) {}
     netlink_t* get_link(int fd, int& idx);
     int accept_link(const netlink_t& parent);
-    int recycle_used_link(netlink_t& link);
+    int recycle_link(netlink_t& link);
     int init_one_link(int idx, netlink_t& node, void* up);
     int recover_one_link(int idx, netlink_t& node, void* up);
     int check_one_link(int idx, netlink_t& node, void* up);
@@ -47,13 +47,16 @@ private:
     int move_link_to_error_list(netlink_t& link);
     void update_used_list(int link_idx);
 
+    enum link_id_t
+    {
+        lfree = 0,
+        lused = 1,
+        lerror = 2,
+    };
+
     int epfd_;
     // 网络连接链表
     linked_list_t<netlink_t>* link_list_;
-    // 记录已使用的netlink(tail最新，head最旧)
-    linked_list_flag_t used_list_;
-    // 出现问题的netlink
-    linked_list_flag_t error_list_;
     // fd到list idx转换
     int *fd2idx_;
     // fired events

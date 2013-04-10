@@ -39,9 +39,6 @@ calypso_network_t::~calypso_network_t()
 
 int calypso_network_t::init( int fd_capacity, int max_fired_num, dynamic_allocator_t* allocator )
 {
-    empty_list_flag(used_list_);
-    empty_list_flag(error_list_);
-
     epfd_ = epoll_create(fd_capacity);
     if (epfd_ < 0)
     {
@@ -49,7 +46,7 @@ int calypso_network_t::init( int fd_capacity, int max_fired_num, dynamic_allocat
         return -1;
     }
 
-    link_list_ = new linked_list_t<netlink_t>(fd_capacity);
+    link_list_ = new linked_list_t<netlink_t>(fd_capacity, lerror);
     if (NULL == link_list_)
     {
         C_FATAL("new linked_list_t<netlink_t>(%d) ret NULL", fd_capacity);
@@ -222,15 +219,8 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
 
         if (link->is_closed() || link_err)
         {
-            if (netlink_t::accept_link == link->get_link_type())
-            {
-                recycle_used_link(*link);
-            }
-            else
-            {
-                C_WARN("netlink(fd:%d) closed or error, now move it to error list!", fired_events_[i].data.fd);
-                move_link_to_error_list(*link);
-            }
+            C_WARN("netlink(fd:%d) closed or error, now move it to error list!", fired_events_[i].data.fd);
+            move_link_to_error_list(*link);
         }
     }
 
@@ -256,7 +246,7 @@ int calypso_network_t::accept_link( const netlink_t& parent )
 
     do 
     {
-        int ret = link_list_->append(used_list_);
+        int ret = link_list_->append(lused);
         if (ret < 0)
         {
             C_FATAL("netlink list append to used list failed! ret %d", ret);
@@ -264,7 +254,7 @@ int calypso_network_t::accept_link( const netlink_t& parent )
             break;
         }
 
-        link_idx = used_list_.tail_;
+        link_idx = link_list_->get_tail(lused);
         newlink = link_list_->get(link_idx);
         ret = parent.accept(newlink);
         if (ret < 0)
@@ -285,14 +275,14 @@ int calypso_network_t::accept_link( const netlink_t& parent )
 
     if (!accept_succ)
     {
-        if (newlink) recycle_used_link(*newlink);
+        if (newlink) recycle_link(*newlink);
         return -1;
     }
 
     return link_idx;
 }
 
-int calypso_network_t::recycle_used_link( netlink_t& link )
+int calypso_network_t::recycle_link( netlink_t& link )
 {
     int idx = link_list_->get_idx(&link);
     if (idx < 0)
@@ -302,20 +292,27 @@ int calypso_network_t::recycle_used_link( netlink_t& link )
         return -1;
     }
 
-    C_TRACE("recycle link[%d]", idx);
-    link.clear();
-    int ret = link_list_->move_before(used_list_, idx, used_list_.head_);
-    if (ret < 0)
+    int lid = link_list_->get_list_id(idx);
+    if (lid < 0)
     {
-        C_FATAL("netlink list move_before failed (head:%d, idx:%d), ret:%d", used_list_.head_, idx, ret);
+        C_FATAL("invalid listid %d by link[%d]", lid, idx);
         return -1;
     }
 
-    ret = link_list_->remove(used_list_);
+    C_TRACE("recycle link[%d]", idx);
+    link.clear();
+    int ret = link_list_->move_before(idx, link_list_->get_head(lid));
+    if (ret < 0)
+    {
+        C_FATAL("netlink list(%d) move_before failed (head:%d, idx:%d), ret:%d", lid, link_list_->get_head(lid), idx, ret);
+        return -1;
+    }
+
+    ret = link_list_->remove(lid);
     if (ret < 0)
     {
         // FATAL
-        C_FATAL("netlink list remove used head(%d) failed, ret %d", used_list_.head_, ret);
+        C_FATAL("netlink list(%d) remove used head(%d) failed, ret %d", lid, link_list_->get_head(lid), ret);
         return -1;
     }
 
@@ -421,14 +418,14 @@ int calypso_network_t::move_link_to_error_list( netlink_t& link )
         return -1;
     }
 
-    int ret = link_list_->move_before(used_list_, link_idx, used_list_.head_);
+    int ret = link_list_->move_before(link_idx, link_list_->get_head(lused));
     if (ret < 0)
     {
-        C_FATAL("netlink list move_before failed (head:%d, idx:%d), ret %d", used_list_.head_, link_idx, ret);
+        C_FATAL("netlink list move_before failed (head:%d, idx:%d), ret %d", link_list_->get_head(lused), link_idx, ret);
         return -1;
     }
 
-    ret = link_list_->move(used_list_, error_list_);
+    ret = link_list_->move(lused, lerror);
     if (ret < 0)
     {
         C_FATAL("move netlink from used to error failed, ret %d", ret);
@@ -443,7 +440,7 @@ int calypso_network_t::recover_one_link( int idx, netlink_t& node, void* up )
     int ret;
     if (node.get_link_type() == netlink_t::accept_link)
     {
-        recycle_used_link(node);
+        recycle_link(node);
         return idx;
     }
 
@@ -465,15 +462,29 @@ int calypso_network_t::recover_one_link( int idx, netlink_t& node, void* up )
     }
 
     int next_idx = link_list_->get_next(&node);
-    // move link from error to used list
-    ret = link_list_->swap(error_list_, error_list_.head_, idx);
-    if (ret < 0)
+    int lid = link_list_->get_list_id(idx);
+    if (lid < 0)
     {
-        C_FATAL("netlink list swap failed (head:%d, idx:%d), ret %d", error_list_.head_, idx, ret);
+        C_FATAL("list id by link[%d] is %d", idx, lid);
+        return -1;
+    }
+
+    if (lid == lused)
+    {
+        // already in used list
+        C_WARN("link[%d] already in used list, no need to recover", idx);
         return next_idx;
     }
 
-    ret = link_list_->move(error_list_, used_list_);
+    // move link from error to used list
+    ret = link_list_->swap(link_list_->get_head(lerror), idx);
+    if (ret < 0)
+    {
+        C_FATAL("netlink list swap failed (head:%d, idx:%d), ret %d", link_list_->get_head(lerror), idx, ret);
+        return next_idx;
+    }
+
+    ret = link_list_->move(lerror, lused);
     if (ret < 0)
     {
         C_FATAL("move netlink[%d] from error to used failed, ret %d", idx, ret);
@@ -486,16 +497,23 @@ int calypso_network_t::recover_one_link( int idx, netlink_t& node, void* up )
 void calypso_network_t::recover( int max_recover_num )
 {
     linked_list_t<netlink_t>::walk_list_callback recover_func = bind(&calypso_network_t::recover_one_link, this, placeholders::_1, placeholders::_2, placeholders::_3);
-    link_list_->walk_list(max_recover_num, error_list_, NULL, recover_func);
+    link_list_->walk_list(max_recover_num, lerror, NULL, recover_func);
 }
 
 void calypso_network_t::update_used_list( int link_idx )
 {
-    int ret = link_list_->move_after(used_list_, link_idx, used_list_.tail_);
+    int lid = link_list_->get_list_id(link_idx);
+    if (lid != lused)
+    {
+        C_FATAL("expect link[%d].listid to be lused but %d", link_idx, lid);
+        return;
+    }
+
+    int ret = link_list_->move_after(link_idx, link_list_->get_tail(lid));
     if (ret < 0)
     {
         C_FATAL("netlink list move %d after %d failed, ret %d", 
-            link_idx, used_list_.tail_, ret);
+            link_idx, link_list_->get_tail(lid), ret);
     }
 }
 
@@ -511,7 +529,7 @@ void calypso_network_t::check_idle_netlink( int max_check_num, int max_idle_sec,
     opt.max_idle_sec_ = max_idle_sec;
     opt.conn_timeout_sec_ = connect_timeout;
     linked_list_t<netlink_t>::walk_list_callback check_func = bind(&calypso_network_t::check_one_link, this, placeholders::_1, placeholders::_2, placeholders::_3);
-    link_list_->walk_list(max_check_num, used_list_, &opt, check_func);
+    link_list_->walk_list(max_check_num, lused, &opt, check_func);
 }
 
 int calypso_network_t::check_one_link( int idx, netlink_t& node, void* up )
@@ -534,15 +552,15 @@ int calypso_network_t::check_one_link( int idx, netlink_t& node, void* up )
 
 int calypso_network_t::create_link( const netlink_config_t::config_item_t& config )
 {
-    int ret = link_list_->append(used_list_);
+    int ret = link_list_->append(lused);
     if (ret < 0)
     {
         C_FATAL("create new link failed, ret %d, no more links?", ret);
         return -1;
     }
 
-    int create_idx = used_list_.tail_;
-    netlink_t* link = link_list_->get(used_list_.tail_);
+    int create_idx = link_list_->get_tail(lused);
+    netlink_t* link = link_list_->get(create_idx);
     netlink_t::link_opt_t opt;
     memset(&opt, 0, sizeof(opt));
     if (0 == strcmp("listen", config.type_))
@@ -608,6 +626,8 @@ int calypso_network_t::create_link( const netlink_config_t::config_item_t& confi
 
 int calypso_network_t::close_link( int idx )
 {
+    // FIXME: 不一定是在used列表中，可能已经被移入error了
+    // 先遍历一下errorlist（数量相较used较少）? 如果不在则从used移入
     netlink_t* link = link_list_->get(idx);
     if (NULL == link)
     {
@@ -615,5 +635,5 @@ int calypso_network_t::close_link( int idx )
         return -1;
     }
 
-    return recycle_used_link(*link);
+    return recycle_link(*link);
 }

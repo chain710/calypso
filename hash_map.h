@@ -33,9 +33,9 @@ public:
     int replace(const _K& key, const _V& val);
     int remove(const _K& key);
     void empty();
-    bool is_empty() const { return used_list_.num_ <= 0; }
-    int get_used_num() const { return used_list_.num_; }
-    int get_free_num() const { return hash_nodes_->get_length() - used_list_.num_; }
+    bool is_empty() const { return hash_nodes_->get_num(lused) <= 0; }
+    int get_used_num() const { return hash_nodes_->get_num(lused); }
+    int get_free_num() const { return hash_nodes_->get_length() - get_used_num(); }
     int get_collision_num() const;
     int get_errno() const { return errno_; }
 private:
@@ -45,8 +45,13 @@ private:
     void reset_errno() { errno_ = no_error; }
     int put(const _K& key, const _V& val, bool ins);
 
+    enum list_id_t
+    {
+        lfree = 0,
+        lused = 1,
+    };
+
     linked_list_t<hash_map_node_t>* hash_nodes_;
-    linked_list_flag_t used_list_;
     int* buckets_;  // collision head
     int bucket_num_;
     int errno_;
@@ -71,7 +76,7 @@ int hash_map_t<_K, _V, _HF>::initialize( int capacity, int bucket_num )
 {
     reset_errno();
     bucket_num_ = bucket_num;
-    hash_nodes_ = new linked_list_t<hash_map_node_t>(capacity);
+    hash_nodes_ = new linked_list_t<hash_map_node_t>(capacity, lused);
     buckets_ = new int[bucket_num_];
 
     if (NULL == hash_nodes_ || NULL == buckets_)
@@ -79,10 +84,6 @@ int hash_map_t<_K, _V, _HF>::initialize( int capacity, int bucket_num )
         errno_ = internal_err;
         return -1;
     }
-
-    memset(&used_list_, 0, sizeof(used_list_));
-    used_list_.head_ = -1;
-    used_list_.tail_ = -1;
 
     for (int i = 0; i < bucket_num_; ++i)
     {
@@ -150,18 +151,19 @@ int hash_map_t<_K, _V, _HF>::put( const _K& key, const _V& val, bool ins )
     }
 
     // alloc one node
-    int ret = hash_nodes_->append(used_list_);
+    int ret = hash_nodes_->append(lused);
     if (ret < 0)
     {
         errno_ = out_of_memory;
         return -1;
     }
 
-    hash_map_node_t* ins_node = hash_nodes_->get(used_list_.tail_);
+    int alloc_idx = hash_nodes_->get_tail(lused);
+    hash_map_node_t* ins_node = hash_nodes_->get(alloc_idx);
     ins_node->key_ = key;
     ins_node->val_ = val;
     ins_node->next_collision_ = buckets_[idx];
-    buckets_[idx] = used_list_.tail_;
+    buckets_[idx] = alloc_idx;
     return 0;
 }
 
@@ -196,14 +198,14 @@ int hash_map_t<_K, _V, _HF>::remove( const _K& key )
     }
 
     int del_id = hash_nodes_->get_idx(hnode);
-    int ret = hash_nodes_->swap(used_list_, used_list_.head_, del_id);
+    int ret = hash_nodes_->swap(hash_nodes_->get_head(lused), del_id);
     if (ret < 0)
     {
         errno_ = internal_err;
         return -1;
     }
 
-    ret = hash_nodes_->remove(used_list_);
+    ret = hash_nodes_->remove(lused);
     if (ret < 0)
     {
         errno_ = internal_err;
@@ -221,9 +223,6 @@ void hash_map_t<_K, _V, _HF>::empty()
         buckets_[i] = -1;
     }
 
-    memset(&used_list_, 0, sizeof(used_list_));
-    used_list_.head_ = -1;
-    used_list_.tail_ = -1;
     hash_nodes_->reset();
 }
 
@@ -234,9 +233,6 @@ void hash_map_t<_K, _V, _HF>::init()
     buckets_ = NULL;
     hash_nodes_ = NULL;
     bucket_num_ = 0;
-    memset(&used_list_, 0, sizeof(used_list_));
-    used_list_.head_ = -1;
-    used_list_.tail_ = -1;
 }
 
 template<typename _K, typename _V, typename _HF>
@@ -255,7 +251,7 @@ template<typename _K, typename _V, typename _HF>
 int hash_map_t<_K, _V, _HF>::get_collision_num() const
 {
     int num = 0;
-    hash_nodes_->walk_list(used_list_, &num, _add_collision_num<_K, _V, _HF>);
+    hash_nodes_->walk_list(lused, &num, _add_collision_num<_K, _V, _HF>);
     return num;
 }
 

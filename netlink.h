@@ -69,7 +69,7 @@ public:
     int send(const char* buf, int len);
     // 关闭链路，但是不归还缓存，可以recover
     int close();
-    // 关闭链路，归还缓存，不能recover了
+    // 清空所有数据，关闭链路，归还缓存，不能recover
     int clear();
     // send/recv/accept操作后发现close/error了，可以调用recover重新建立连接/监听端口，注意fd需要重新加入epoll
     int recover();

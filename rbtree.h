@@ -13,6 +13,12 @@ enum rbtree_color_t
 template<typename _K, typename _V, typename _CMP>
 class llrbtree_t
 {
+private:
+    enum list_id_t
+    {
+        lfree = 0,
+        lused = 1,
+    };
 public:
     struct rbtree_node_t
     {
@@ -47,11 +53,7 @@ public:
 
     int initialize(int capacity)
     {
-        memset(&used_, 0, sizeof(used_));
-        used_.head_ = -1;
-        used_.tail_ = -1;
-
-        nodes_ = new linked_list_t<rbtree_node_t>(capacity);
+        nodes_ = new linked_list_t<rbtree_node_t>(capacity, lused);
         if (NULL == nodes_)
         {
             return -1;
@@ -66,14 +68,14 @@ public:
 
     int insert(const _K& k, const _V& v)
     {
-        int ret = nodes_->append(used_);
+        int ret = nodes_->append(lused);
         if (ret < 0)
         {
             // out of nodes
             return -1;
         }
 
-        rbtree_node_t* node = nodes_->get(used_.tail_);
+        rbtree_node_t* node = nodes_->get(nodes_->get_tail(lused));
         node->key_ = k;
         node->val_ = v;
 
@@ -108,13 +110,13 @@ public:
             root_->color_ = rb_black;
         }
 
-        int ret = nodes_->swap(used_, used_.head_, swp_idx);
+        int ret = nodes_->swap(nodes_->get_head(lused), swp_idx);
         if (ret < 0)
         {
             return -1;
         }
 
-        nodes_->remove(used_);
+        nodes_->remove(lused);
         return 0;
     }
 
@@ -536,7 +538,6 @@ private:
     // ¸ù½Úµã
     rbtree_node_t* root_;
     linked_list_t<rbtree_node_t>* nodes_;
-    linked_list_flag_t used_;
 };
 
 #endif

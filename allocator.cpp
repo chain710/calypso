@@ -28,7 +28,7 @@ int fixed_size_allocator_t::initialize( int size, int capacity )
     size_ = size;
     capacity_ = capacity;
     buffers_ = new char[capacity*(size+sizeof(buffer_node_t))];
-    buffer_list_ = new linked_list_t<buffer_node_t*>(capacity);
+    buffer_list_ = new linked_list_t<buffer_node_t*>(capacity, lused);
     if (NULL == buffers_ || NULL == buffer_list_)
     {
         C_ERROR("create buffer(%p) or list(%p) failed, oom?", buffers_, buffer_list_);
@@ -46,16 +46,17 @@ char* fixed_size_allocator_t::alloc()
 
 int fixed_size_allocator_t::alloc2()
 {
-    int ret = buffer_list_->append(used_list_);
+    int ret = buffer_list_->append(lused);
     if (ret < 0)
     {
-        C_ERROR("bufferlist usedlist(%d) append error, oom?", used_list_.num_);
+        C_ERROR("bufferlist usedlist append error, freenum=%d, oom?", get_free_num());
         return -1;
     }
 
-    buffer_node_t** b = buffer_list_->get(used_list_.tail_);
+    int alloc_id = buffer_list_->get_tail(lused);
+    buffer_node_t** b = buffer_list_->get(alloc_id);
     (*b)->flag_ |= buffer_used;
-    return used_list_.tail_;
+    return alloc_id;
 }
 
 int fixed_size_allocator_t::dealloc( char* buffer )
@@ -74,16 +75,16 @@ int fixed_size_allocator_t::dealloc( int idx )
         return -1;
     }
 
-    int ret = buffer_list_->swap(used_list_, idx, used_list_.head_);
+    int ret = buffer_list_->swap(idx, buffer_list_->get_head(lused));
     if (ret < 0)
     {
         // swap fail, maybe invalid buffer?
-        C_ERROR("bufferlist swap error, idx:%d usedhead:%d", idx, used_list_.head_);
+        C_ERROR("bufferlist swap error, idx:%d usedhead:%d", idx, buffer_list_->get_head(lused));
         return -1;
     }
 
     (*b)->flag_ &= (unsigned int)(~buffer_used);
-    buffer_list_->remove(used_list_);
+    buffer_list_->remove(lused);
     return 0;
 }
 
@@ -107,9 +108,6 @@ void fixed_size_allocator_t::init()
     buffers_ = NULL;
     size_ = 0;
     capacity_ = 0;
-    memset(&used_list_, 0, sizeof(used_list_));
-    used_list_.head_ = -1;
-    used_list_.tail_ = -1;
 }
 
 char* fixed_size_allocator_t::get( int idx )
