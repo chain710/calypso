@@ -352,7 +352,7 @@ int netlink_t::send( const char* buf, int len )
     // send remain
     while (send_buf_->used_ > send_len) 
     {
-        ret = ::send(fd_, send_buf_->data_ + send_len, send_buf_->used_ - send_len, 0);
+        ret = ::send(fd_, send_buf_->data_ + send_len, send_buf_->used_ - send_len, MSG_NOSIGNAL);
         if (ret >= 0)
         {
             send_len += ret;
@@ -379,7 +379,7 @@ int netlink_t::send( const char* buf, int len )
     send_len = 0;
     while (buf && len > send_len) 
     {
-        ret = ::send(fd_, buf + send_len, len - send_len, 0);
+        ret = ::send(fd_, buf + send_len, len - send_len, MSG_NOSIGNAL);
         if (ret >= 0)
         {
             send_len += ret;

@@ -142,7 +142,12 @@ int massclients_t::on_net_event( int link_idx, netlink_t& link, unsigned int evt
         tmp.assign(data, data_len);
         C_DEBUG("recv %s(%d bytes) from %s", tmp.c_str(), data_len, link.get_remote_addr_str(addr_str, sizeof(addr_str)));
 
-        link.close();
+        if (string::npos != tmp.find(ECHO_STR))
+        {
+            link.close();
+        }
+
+        // dont pop, maybe fragment
     }
 
     return 0;

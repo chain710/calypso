@@ -49,7 +49,7 @@ int fixed_size_allocator_t::alloc2()
     int ret = buffer_list_->append(lused);
     if (ret < 0)
     {
-        C_ERROR("bufferlist usedlist append error, freenum=%d, oom?", get_free_num());
+        // out of memory
         return -1;
     }
 

@@ -66,6 +66,12 @@ void sig_handler(int sig)
 
 int main(int argc, char** argv)
 {
+    int verbose = 2;
+    if (argc > 1)
+    {
+        verbose = strtol(argv[1], NULL, 10);
+    }
+
     clear_reload_time();
     clear_stop_sig();
     clear_restart_app_sig();
@@ -73,7 +79,19 @@ int main(int argc, char** argv)
     signal(SIGQUIT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    C_LOG_INST.setLogLevel(TRACE_LOG_LEVEL);
+    switch (verbose)
+    {
+    case 0:
+        C_LOG_INST.setLogLevel(ERROR_LOG_LEVEL);
+        break;
+    case 1:
+        C_LOG_INST.setLogLevel(INFO_LOG_LEVEL);
+        break;
+    case 2:
+        C_LOG_INST.setLogLevel(TRACE_LOG_LEVEL);
+        break;
+    }
+
     SharedAppenderPtr myAppender(new ConsoleAppender());
     myAppender->setName("a1");
     C_LOG_INST.addAppender(myAppender);

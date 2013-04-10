@@ -543,6 +543,7 @@ int calypso_network_t::check_one_link( int idx, netlink_t& node, void* up )
             || sec_diff >= opt->max_idle_sec_)
         {
             // connect超时或者idle太久，扔到error队列里重启
+            C_WARN("link(idx:%d fd:%d) idle too long(%d)", idx, node.getfd(), sec_diff);
             move_link_to_error_list(node);
         }
     }

@@ -329,10 +329,11 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
 {
     if (NULL == data) len = 0;
     app_thread_context_t& cur_ctx = app_ctx_[running_app_];
-    int rctx = cur_ctx.in_->produce_reserve(sizeof(msgctx)+len);
+    int reserve_len = sizeof(msgctx)+len;
+    int rctx = cur_ctx.in_->produce_reserve(reserve_len);
     if (rctx < 0)
     {
-        C_ERROR("produce_reserve failed ret %d, oom?", rctx);
+        C_ERROR("produce_reserve(%d) failed ret %d, oom? free=%d", reserve_len, rctx, cur_ctx.in_->get_free_len());
         return -1;
     }
 
@@ -510,6 +511,7 @@ int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
         ++proc_num;
         if (clen > out_msg_buf_size_)
         {
+            C_WARN("outmsg buf too small(%d), ready to extend(%d)", out_msg_buf_size_, clen);
             char* newbuf = allocator_.realloc(clen, out_msg_buf_);
             if (NULL == newbuf)
             {
