@@ -1,4 +1,5 @@
 #include "netlink.h"
+#include "log_interface.h"
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -49,6 +50,7 @@ int netlink_t::accept( netlink_t* child ) const
     int newfd = ::accept(fd_, (sockaddr*)&remote_addr, &addr_len);
     if (newfd < 0)
     {
+        C_ERROR("accept(%d) error(%d)", fd_, errno);
         return -1;
     }
 
@@ -72,6 +74,7 @@ int netlink_t::bind( const char* ip, unsigned short port )
 {
     if (opt_.ltype_ == accept_link)
     {
+        C_ERROR("accept link(%d) cant bind local addr", fd_);
         return -1;
     }
 
@@ -81,12 +84,18 @@ int netlink_t::bind( const char* ip, unsigned short port )
 
 int netlink_t::listen( int backlog )
 {
-    if (opt_.ltype_ != server_link) return -1;
+    if (opt_.ltype_ != server_link)
+    {
+        C_ERROR("this link(type=%d) cant listen", opt_.ltype_);
+        return -1;
+    }
+
     last_active_time_ = now_time_;
     set_listen_backlog(backlog);
     int ret = ::listen(fd_, listen_backlog_);
     if (ret < 0)
     {
+        C_ERROR("listen(%d) error(%d)", fd_, errno);
         return -1;
     }
 
@@ -97,6 +106,8 @@ int netlink_t::connect( const char* ip, unsigned short port )
 {
     if (opt_.ltype_ != client_link || nsc_open != status_ || NULL == ip || 0 == port)
     {
+        C_ERROR("invalid link type(%d) or status(%d) or param(ip=%p port=%d)", 
+            opt_.ltype_, status_, ip, port);
         return -1;
     }
 
@@ -117,6 +128,7 @@ int netlink_t::setup()
             fd_ = socket(AF_INET, SOCK_STREAM, 0);
             if (fd_ < 0)
             {
+                C_ERROR("new socket error(%d)", errno);
                 break;
             }
 
@@ -146,7 +158,11 @@ int netlink_t::setup()
             {
                 opt_.usr_rcvbuf_size_ = opt_.usr_rcvbuf_size_ > 0? opt_.usr_rcvbuf_size_: DEFAULT_BUFFER_SIZE;
                 recv_buf_ = (link_buffer_t*)allocator_->alloc(opt_.usr_rcvbuf_size_ + sizeof(link_buffer_t));
-                if (NULL == recv_buf_) break;
+                if (NULL == recv_buf_)
+                {
+                    C_ERROR("alloc recvbuf(%d) failed", opt_.usr_rcvbuf_size_ + (int)sizeof(link_buffer_t));
+                    break;
+                }
             }
 
             recv_buf_->used_ = 0;
@@ -155,7 +171,11 @@ int netlink_t::setup()
             {
                 opt_.usr_sndbuf_size_ = opt_.usr_sndbuf_size_ > 0? opt_.usr_sndbuf_size_: DEFAULT_BUFFER_SIZE;
                 send_buf_ = (link_buffer_t*)allocator_->alloc(opt_.usr_sndbuf_size_ + sizeof(link_buffer_t));
-                if (NULL == send_buf_) break;
+                if (NULL == send_buf_)
+                {
+                    C_ERROR("alloc sendbuf(%d) failed", opt_.usr_rcvbuf_size_ + (int)sizeof(link_buffer_t));
+                    break;
+                }
             }
 
             send_buf_->used_ = 0;
@@ -172,6 +192,7 @@ int netlink_t::setup()
                 int keep_alive = 1;
                 if (setsockopt(fd_, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive)) < 0)
                 {
+                    C_ERROR("set sock(%d) keepalive error(%d)", fd_, errno);
                     break;
                 }
             }
@@ -184,6 +205,7 @@ int netlink_t::setup()
                 int reuse_addr = 1;
                 if (setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr)) < 0)
                 {
+                    C_ERROR("set sock(%d) reuseaddr error(%d)", fd_, errno);
                     break;
                 }
             }
@@ -206,6 +228,7 @@ int netlink_t::add_fd_flag( int flags )
     int f = fcntl(fd_, F_GETFL, 0);
     if (f < 0)
     {
+        C_ERROR("get fd(%d) flag error(%d)", fd_, errno);
         return -1;
     }
 
@@ -213,6 +236,7 @@ int netlink_t::add_fd_flag( int flags )
     f = fcntl(fd_, F_SETFL, f);
     if (f < 0)
     {
+        C_ERROR("set fd(%d) flag(%d) error(%d)", fd_, f, errno);
         return -1;
     }
 
@@ -230,6 +254,7 @@ int netlink_t::set_sock_buffer_size( int snd, int rcv )
         ret = setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, &optval, optlen);
         if (ret < 0)
         {
+            C_ERROR("set sendbuf(%d) error(%d)", snd, errno);
             return -1;
         }
     }
@@ -240,6 +265,7 @@ int netlink_t::set_sock_buffer_size( int snd, int rcv )
         ret = setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &optval, optlen);
         if (ret < 0)
         {
+            C_ERROR("set recvbuf(%d) error(%d)", rcv, errno);
             return -1;
         }
     }
@@ -265,6 +291,8 @@ int netlink_t::do_connect()
         }
         else if (EINTR != errno)
         {
+            char remote_addr_str[64];
+            C_ERROR("connect(%d, %s) error(%d)", fd_, get_remote_addr_str(remote_addr_str, sizeof(remote_addr_str)), errno);
             return -1;
         }
     } while (true);
@@ -277,6 +305,7 @@ int netlink_t::recv()
 {
     if (opt_.usr_rcvbuf_size_ <= 0)
     {
+        C_ERROR("empty user recvbuf(%d), cant recv", opt_.usr_rcvbuf_size_);
         return -1;
     }
 
@@ -294,6 +323,10 @@ int netlink_t::recv()
                 char* newbuf = allocator_->realloc(opt_.usr_rcvbuf_size_*2+sizeof(link_buffer_t), (char*)recv_buf_);
                 if (NULL == newbuf)
                 {
+                    // NOTE: 两种处理方案
+                    // 1.return -1 提示内存不足，该链路必须被关闭
+                    // 2.return 0 剩下的buf留在系统缓冲里。如果是ET模式且该链路不再发送数据，那么系统缓冲里的数据就一直无法被读取，除非在netlink结构里加上标识指示该链路的系统缓冲还有数据待接收
+                    C_ERROR("no more recvbuf, current size %d", opt_.usr_rcvbuf_size_);
                     return -1;
                 }
 
@@ -315,6 +348,7 @@ int netlink_t::recv()
         else if (EINTR != errno)
         {
             // recv error
+            C_ERROR("recv(%d) error(%d)", fd_, errno);
             return -1;
         }
     }
@@ -332,6 +366,7 @@ int netlink_t::copy_data_to_send_buffer(const char* buffer, int len)
         if (NULL == newbuf)
         {
             // send buf overflow
+            C_ERROR("no more sendbuf, current size %d", opt_.usr_sndbuf_size_);
             return -1;
         }
 
@@ -371,6 +406,7 @@ int netlink_t::send( const char* buf, int len )
         }
         else if (EINTR != errno)
         {
+            C_ERROR("send(%d) error(%d)", fd_, errno);
             return -1;
         }
     }
@@ -390,6 +426,7 @@ int netlink_t::send( const char* buf, int len )
         }
         else if (EINTR != errno)
         {
+            C_ERROR("send(%d) error(%d)", fd_, errno);
             return -1;
         }
     }
@@ -436,6 +473,7 @@ int netlink_t::recover()
         return configure();
     }
 
+    C_ERROR("this link(type=%d) cant recover", opt_.ltype_);
     return -1;
 }
 
@@ -508,6 +546,7 @@ int netlink_t::get_sock_error() const
     int ret = getsockopt(fd_, SOL_SOCKET, SO_ERROR, &sock_err, &errlen);
     if (ret < 0)
     {
+        C_ERROR("get sock(%d) errno error(%d)", fd_, errno);
         return -1;
     }
 
@@ -521,6 +560,7 @@ int netlink_t::set_established()
         return mod_status(nsc_established);
     }
 
+    C_ERROR("this link(fd=%d status=%d) cant set established", fd_, status_);
     return -1;
 }
 
@@ -573,6 +613,9 @@ int netlink_t::configure()
         int ret = ::bind(fd_, (sockaddr*)&local_addr_, sizeof(local_addr_));
         if (ret < 0)
         {
+            char laddrstr[64];
+            snprintf(laddrstr, sizeof(laddrstr), "%s:%d", inet_ntoa(local_addr_.sin_addr), ntohs(local_addr_.sin_port));
+            C_ERROR("bind(%d) local addr(%s) error(%d)", fd_, laddrstr, errno);
             return -1;
         }
     }
