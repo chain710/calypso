@@ -2,6 +2,7 @@
 #include "log_interface.h"
 #include <fstream>
 #include <time.h>
+#include <arpa/inet.h>
 
 using namespace std;
 
@@ -45,4 +46,10 @@ int nrand(int rbeg, int rend)
 void init_rand()
 {
     srand(time(NULL));
+}
+
+const char* get_addr_str( sockaddr_in addr, char* buf, int size )
+{
+    snprintf(buf, size, "%s:%d", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+    return buf;
 }

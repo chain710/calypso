@@ -627,8 +627,6 @@ int calypso_network_t::create_link( const netlink_config_t::config_item_t& confi
 
 int calypso_network_t::close_link( int idx )
 {
-    // FIXME: 不一定是在used列表中，可能已经被移入error了
-    // 先遍历一下errorlist（数量相较used较少）? 如果不在则从used移入
     netlink_t* link = link_list_->get(idx);
     if (NULL == link)
     {

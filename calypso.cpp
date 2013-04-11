@@ -163,6 +163,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
     msgpack_context_t msgpack_ctx;
     memset(&msgpack_ctx, 0, sizeof(msgpack_ctx));
     msgpack_ctx.link_ctx_ = link_idx;
+    msgpack_ctx.link_fd_ = link.getfd();
     msgpack_ctx.local_ = link.get_local_addr();
     msgpack_ctx.remote_ = link.get_remote_addr();
     msgpack_ctx.link_type_ = link.get_link_type();
@@ -289,39 +290,33 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
         return -1;
     }
 
-    // FIXME: check addr
-    sockaddr_in netaddr;
-    char link_addr_str[64];
-    switch (ctx.link_type_)
+    if (link->is_closed())
     {
-    case netlink_t::client_link:
-        netaddr = link->get_remote_addr();
-        if (0 != memcmp(&netaddr, &ctx.remote_, sizeof(ctx.remote_)))
-        {
-            C_ERROR("unmatch remote addr! %s", link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)));
-            return -1;
-        }
-
-        break;
-    case netlink_t::accept_link:
-        netaddr = link->get_local_addr();
-        if (0 != memcmp(&netaddr, &ctx.local_, sizeof(ctx.local_)))
-        {
-            C_ERROR("unmatch local addr! %s", link->get_local_addr_str(link_addr_str, sizeof(link_addr_str)));
-            return -1;
-        }
-
-        break;
-    default:
-        C_ERROR("invalid link type %d", ctx.link_type_);
+        C_ERROR("link[%d] already closed, cant send", ctx.link_ctx_);
         return -1;
     }
 
+    // 按照linklist的分配策略，相同idx且相同fd的概率很小，所以这里简单判断是否fd相等
+    if (ctx.link_fd_ != link->getfd())
+    {
+        char laddr_str[64];
+        char raddr_str[64];
+        C_ERROR("unmatch fd! ltype=%d ctx=%d link=%d ctx_local=%s ctx_remote=%s", 
+            ctx.link_type_, ctx.link_fd_, link->getfd(), 
+            get_addr_str(ctx.local_, laddr_str, sizeof(laddr_str)), 
+            get_addr_str(ctx.remote_, raddr_str, sizeof(raddr_str)));
+        return -1;
+    }
+
+    char link_addr_str[64];
     int ret = link->send(data, len);
-    C_TRACE("send data(%p, %d) to %s ret %d", data, (int)len, link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)), ret);
     if (ret < 0)
     {
         C_ERROR("send data(%p, %d) to %s failed(%d)", data, (int)len, link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)), ret);
+    }
+    else
+    {
+        C_TRACE("send data(%p, %d) to %s succ", data, (int)len, link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)));
     }
 
     return ret;

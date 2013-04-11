@@ -520,7 +520,7 @@ int netlink_t::pop_recv_buffer( int len )
 }
 
 const char* netlink_t::get_local_addr_str( char* buf, int size ) const
-{ 
+{
     sockaddr_in laddr;
     socklen_t len = sizeof(laddr);  
     int ret = getsockname(fd_, (sockaddr *)&laddr, &len);

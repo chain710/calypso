@@ -13,6 +13,7 @@ struct msgpack_context_t
 {
     int magic_;     // magic number(0)
     int link_ctx_;  // 回传，方便主线程找到该链路
+    int link_fd_;   // fd
     unsigned int flag_; // 功能标识 see msgpack_flag_t
     int link_type_;   // 链路类型 see netlink_t linktype
     sockaddr_in remote_;    // 对端地址
