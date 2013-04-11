@@ -2,6 +2,7 @@
 #define _DEMO_APP_H_
 
 #include "app_handler.h"
+#include "timer_engine.h"
 #include <string.h>
 
 class demo_app_t: public app_handler_t
@@ -18,8 +19,10 @@ public:
     virtual int get_msgpack_size(msgpack_context_t ctx, const char*, size_t) const;
     virtual int handle_msgpack(msgpack_context_t ctx, const char*, size_t);
 
+    void handle_timer(int64_t v);
     void* main_inst_;
     time_t last_handle_reload_;
+    timer_engine_t timers_;
 };
 
 #endif

@@ -1,8 +1,8 @@
 #include "demo_app.h"
 #include "log_interface.h"
 #include "calypso_interface.h"
-#include "calypso.h"
-#include "calypso_util.h"
+#include "calypso.h"    // main
+#include "calypso_signal.h" // main
 #include <string.h>
 #include <stdio.h>
 #include <log4cplus/configurator.h>
@@ -42,6 +42,9 @@ void demo_app_t::handle_tick()
         C_INFO("recv reload sig %u", (unsigned int)last_handle_reload_);
         last_handle_reload_ = time(NULL);
     }
+
+    //timer_engine_t::timer_callback on_timer_func = std::tr1::bind(&demo_app_t::handle_timer, this, tr1::placeholders::_1);
+    //timers_.walk(on_timer_func);
 }
 
 void sig_handler(int sig)

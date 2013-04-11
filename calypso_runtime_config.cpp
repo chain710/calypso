@@ -1,5 +1,5 @@
 #include "calypso_runtime_config.h"
-#include "calypso_util.h"
+#include "utility.h"
 #include "log_interface.h"
 #include <json/json.h>
 #include <string>

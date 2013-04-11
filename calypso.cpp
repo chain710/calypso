@@ -1,7 +1,8 @@
 #include "calypso.h"
 #include "log_interface.h"
 #include "calypso_bootstrap_config.h"
-#include "calypso_util.h"
+#include "calypso_signal.h"
+#include "utility.h"
 #include <tr1/functional>
 #include <unistd.h>
 #include <stdio.h>
@@ -11,7 +12,7 @@ using namespace std;
 using namespace std::tr1;
 using namespace log4cplus;
 
-// app 线程函数
+// app thread proc function
 void* _app_thread_proc(void* args);
 
 calypso_main_t::calypso_main_t()
@@ -89,6 +90,7 @@ int calypso_main_t::initialize(const char* bootstrap_path)
         exit(-1);
     }
 
+    // init threads data
     running_app_ = 0;
     for (int i = 0; i < CALYPSO_APP_THREAD_SWITCH_NUM; ++i)
     {
@@ -113,7 +115,7 @@ void calypso_main_t::main()
         // retry error connection
         network_.recover(runtime_config_.get_max_recover_link_num());
 
-        // check idle
+        // check idle links
         network_.check_idle_netlink(runtime_config_.get_max_check_link_num(), runtime_config_.get_max_tcp_idle(), runtime_config_.get_connect_timeout());
 
         // wait network
@@ -201,7 +203,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
         int data_len = 0;
         char* data = link.get_recv_buffer(data_len);
         C_DEBUG("recv %d bytes from %s", data_len, link.get_remote_addr_str(addr_str, sizeof(addr_str)));
-        // has full msgpack? pop recv buf
+        // has full msgpack?
         int pack_len = handler_->get_msgpack_size(msgpack_ctx, data, data_len);
         if (pack_len < 0)
         {
@@ -217,7 +219,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
                 C_ERROR("sendmsg_to_appthread(%p,%d) failed, ret %d", data, pack_len, ret);
             }
 
-            // NOTE: 这里可能产生消息丢失的问题
+            // NOTE: dispatch failure and pop recved msg cause msg lost
             ret = link.pop_recv_buffer(pack_len);
             if (ret != pack_len)
             {
@@ -287,7 +289,7 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
         return -1;
     }
 
-    // 校验一下
+    // FIXME: check addr
     sockaddr_in netaddr;
     char link_addr_str[64];
     switch (ctx.link_type_)
@@ -611,7 +613,7 @@ void* _app_thread_proc(void* args)
     bool fatal = false;
     while (ctx->th_status_ != app_thread_context_t::app_stop && !fatal)
     {
-        // loop callback
+        // app tick
         ctx->handler_->handle_tick();
 
         handle_msg_num = 0;
@@ -671,3 +673,5 @@ void* _app_thread_proc(void* args)
 
     return NULL;
 }
+
+// TODO: main here

@@ -1,5 +1,5 @@
 #include "calypso_bootstrap_config.h"
-#include "calypso_util.h"
+#include "utility.h"
 #include "log_interface.h"
 #include <json/json.h>
 using namespace std;
