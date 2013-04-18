@@ -3,7 +3,9 @@
 #include "log_interface.h"
 #include <json/json.h>
 #include <string>
+
 using namespace std;
+using namespace log4cplus;
 
 int calypso_runtime_config_t::load( const char* config_path )
 {
@@ -29,6 +31,13 @@ int calypso_runtime_config_t::load( const char* config_path )
     app_queue_len_ = conf_root.get("app_queue_len", 10240).asInt();
     deprecated_thread_life_ = conf_root.get("deprecated_thread_life", 120).asInt();
     deprecated_thread_idle_life_ = conf_root.get("deprecated_thread_idle_life", 5).asInt();
+    string log_config = conf_root.get("log_config_path", "").asString();
+    if (!log_config.empty())
+    {
+        // do we need resetConfiguration?
+        //Logger::getDefaultHierarchy().resetConfiguration();
+        PropertyConfigurator::doConfigure(log_config);
+    }
 
     C_INFO("connect_timeout=%d", connect_timeout_);
     C_INFO("max_tcp_idle=%d", max_tcp_idle_);

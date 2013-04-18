@@ -3,9 +3,10 @@
 #include "allocator.h"
 #include "calypso_network.h"
 #include "netlink_config.h"
-#include "app_handler.h"
+#include "calypso_bootstrap_config.h"
 #include "calypso_runtime_config.h"
 #include "ring_queue.h"
+#include "app_interface.h"
 #include <pthread.h>
 
 struct app_thread_context_t
@@ -18,6 +19,7 @@ struct app_thread_context_t
     };
 
     app_handler_t* handler_;
+    void* app_inst_;
     ring_queue_t* in_;  // 输入消息队列
     ring_queue_t* out_; // 输出消息队列
     dynamic_allocator_t* allocator_;
@@ -41,9 +43,9 @@ public:
     virtual ~calypso_main_t();
 
     int initialize(const char* bootstrap_path);
+    void reg_app_handler(const app_handler_t& h);
     void run();
     void cleanup();
-    void register_handler(app_handler_t* handler) { handler_ = handler; }
 
     // app interface
     int send_by_group(int group, const char* data, size_t len);
@@ -53,6 +55,8 @@ public:
 private:
     // deny copy-cons
     calypso_main_t(const calypso_main_t&) {}
+    // deprecated
+    int load_app_lib(const char* lib_path);
     // 创建应用线程
     int create_appthread(app_thread_context_t& thread_ctx);
     // 停止应用线程
@@ -62,6 +66,8 @@ private:
     int restart_appthread(app_thread_context_t& thread_ctx, app_thread_context_t& deprecated_ctx);
     // 返回netlink下标
     int create_link(int idx, const netlink_config_t::config_item_t& config, void* up);
+    // 关闭链路
+    int close_link(int idx, const netlink_config_t::config_item_t& config, void* up);
     // 网络事件回调
     int on_net_event(int link_idx, netlink_t&, unsigned int evt, void*);
     // 将消息发送给应用线程
@@ -73,6 +79,8 @@ private:
 
     void main();
 
+    void reload_config();
+
     dynamic_allocator_t allocator_;
     fixed_size_allocator_t* subs_;
     calypso_network_t network_;
@@ -80,12 +88,15 @@ private:
 
     app_thread_context_t app_ctx_[CALYPSO_APP_THREAD_SWITCH_NUM];
     int running_app_;
+    void* app_dl_handler_;
 
-    app_handler_t* handler_;
+    app_handler_t handler_;
     char* out_msg_buf_;
     int out_msg_buf_size_;
     time_t nowtime_;
+    time_t last_reload_config_;
 
+    calypso_bootstrap_config_t bootstrap_config_;
     calypso_runtime_config_t runtime_config_;
 };
 

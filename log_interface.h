@@ -8,6 +8,7 @@
 #include <log4cplus/layout.h>
 #include <log4cplus/helpers/pointer.h>
 #include <log4cplus/ndc.h>
+#include <log4cplus/hierarchy.h>
 
 #define C_LOG_INST (log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("calypso")))
 

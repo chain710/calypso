@@ -1,15 +1,6 @@
 #ifndef _CALYPSO_RUNTIME_CONFIG_H_
 #define _CALYPSO_RUNTIME_CONFIG_H_
 
-/*
-// 连接超时
-"connect_timeout": ,
-// tcp链路最长空闲时间
-"max_tcp_idle": ,
-// 每次最多恢复的异常链路数
-"max_recover_link_num": ,
-*/
-
 class calypso_runtime_config_t
 {
 public:

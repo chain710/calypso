@@ -34,7 +34,6 @@ public:
     int load(const char* config_path);
 
     const char* get_netlink_config_path() const { return netlink_config_path_.c_str(); }
-    const char* get_applib_path() const { return applib_path_.c_str(); }
     const char* get_runtime_config_path() const { return runtime_config_path_.c_str(); }
     const alloc_conf_list_t& get_allocator_config() const { return allocator_config_; }
     int get_max_link_num() const { return max_link_num_; }
@@ -42,7 +41,6 @@ public:
 
 private:
     std::string netlink_config_path_;
-    std::string applib_path_;
     std::string runtime_config_path_;
     alloc_conf_list_t allocator_config_;
 

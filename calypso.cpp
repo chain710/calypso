@@ -3,24 +3,30 @@
 #include "calypso_bootstrap_config.h"
 #include "calypso_signal.h"
 #include "utility.h"
+#include "app_interface.h"
 #include <tr1/functional>
 #include <unistd.h>
 #include <stdio.h>
 #include <errno.h>
+#include <signal.h>
+#include <dlfcn.h>
+#include <google/gflags.h>
 
 using namespace std;
 using namespace std::tr1;
 using namespace log4cplus;
+using namespace google;
 
 // app thread proc function
-void* _app_thread_proc(void* args);
+void* _app_thread_main(void* args);
 
 calypso_main_t::calypso_main_t()
 {
     subs_ = NULL;
-    handler_ = NULL;
     out_msg_buf_ = NULL;
     out_msg_buf_size_ = 0;
+    app_dl_handler_ = NULL;
+    memset(&handler_, 0, sizeof(handler_));
 }
 
 calypso_main_t::~calypso_main_t()
@@ -35,15 +41,14 @@ calypso_main_t::~calypso_main_t()
 int calypso_main_t::initialize(const char* bootstrap_path)
 {
     int ret;
-    calypso_bootstrap_config_t bootstrap_config;
-    ret = bootstrap_config.load(bootstrap_path);
+    ret = bootstrap_config_.load(bootstrap_path);
     if (ret < 0)
     {
         C_FATAL("load bootstrap %s failed ret %d", bootstrap_path, ret);
         exit(-1);
     }
 
-    const calypso_bootstrap_config_t::alloc_conf_list_t& alloc_conf = bootstrap_config.get_allocator_config();
+    const calypso_bootstrap_config_t::alloc_conf_list_t& alloc_conf = bootstrap_config_.get_allocator_config();
     int sub_allocator_num = alloc_conf.size();
     allocator_.initialize(sub_allocator_num);
     subs_ = new fixed_size_allocator_t[sub_allocator_num];
@@ -61,19 +66,25 @@ int calypso_main_t::initialize(const char* bootstrap_path)
     }
 
     // load runtime config
-    ret = runtime_config_.load(bootstrap_config.get_runtime_config_path());
+    ret = runtime_config_.load(bootstrap_config_.get_runtime_config_path());
     if (ret < 0)
     {
-        C_FATAL("load runtime config(%s) failed ret %d", bootstrap_config.get_runtime_config_path(), ret);
+        C_FATAL("load runtime config(%s) failed ret %d", bootstrap_config_.get_runtime_config_path(), ret);
         exit(-1);
     }
 
-    network_.init(bootstrap_config.get_max_link_num(), bootstrap_config.get_max_fired_link_num(), &allocator_);
-
-    ret = netconfig_.load(bootstrap_config.get_netlink_config_path());
+    ret = network_.init(bootstrap_config_.get_max_link_num(), bootstrap_config_.get_max_fired_link_num(), &allocator_);
     if (ret < 0)
     {
-        C_FATAL("load netconfig %s failed ret %d", bootstrap_config.get_netlink_config_path(), ret);
+        C_FATAL("init network(maxlink=%d, maxfired=%d) failed, ret %d", 
+            bootstrap_config_.get_max_link_num(), bootstrap_config_.get_max_fired_link_num(), ret);
+        exit(-1);
+    }
+
+    ret = netconfig_.load(bootstrap_config_.get_netlink_config_path());
+    if (ret < 0)
+    {
+        C_FATAL("load netconfig %s failed ret %d", bootstrap_config_.get_netlink_config_path(), ret);
         exit(-1);
     }
 
@@ -100,6 +111,7 @@ int calypso_main_t::initialize(const char* bootstrap_path)
 
     nowtime_ = time(NULL);
     network_.refresh_nowtime(nowtime_);
+    last_reload_config_ = 0;
     return 0;
 }
 
@@ -112,6 +124,12 @@ void calypso_main_t::main()
     {
         nowtime_ = time(NULL);
         network_.refresh_nowtime(nowtime_);
+        if (need_reload(last_reload_config_))
+        {
+            reload_config();
+            last_reload_config_ = nowtime_;
+        }
+
         // retry error connection
         network_.recover(runtime_config_.get_max_recover_link_num());
 
@@ -154,6 +172,11 @@ void calypso_main_t::main()
 int calypso_main_t::create_link( int idx, const netlink_config_t::config_item_t& config, void* up )
 {
     return network_.create_link(config);
+}
+
+int calypso_main_t::close_link( int idx, const netlink_config_t::config_item_t& config, void* up )
+{
+    return network_.close_link(idx);
 }
 
 int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int evt, void* up)
@@ -205,7 +228,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
         char* data = link.get_recv_buffer(data_len);
         C_DEBUG("recv %d bytes from %s", data_len, link.get_remote_addr_str(addr_str, sizeof(addr_str)));
         // has full msgpack?
-        int pack_len = handler_->get_msgpack_size(msgpack_ctx, data, data_len);
+        int pack_len = handler_.get_msgpack_size_(&msgpack_ctx, data, data_len);
         if (pack_len < 0)
         {
             C_ERROR("link(fd:%d) has bad msgpack, close it", fd);
@@ -412,7 +435,8 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
         return -1;
     }
 
-    thread_ctx.handler_ = handler_;
+    thread_ctx.handler_ = &handler_;
+    thread_ctx.app_inst_ = handler_.init_(this);
     thread_ctx.allocator_ = &allocator_;
     thread_ctx.in_ = new ring_queue_t();
     if (NULL == thread_ctx.in_)
@@ -444,7 +468,7 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
 
     thread_ctx.th_status_ = app_thread_context_t::app_running;
     // ONE LAST STEP
-    pthread_create(&thread_ctx.th_, &thread_ctx.th_attr_, _app_thread_proc, (void *)&thread_ctx );
+    pthread_create(&thread_ctx.th_, &thread_ctx.th_attr_, _app_thread_main, (void *)&thread_ctx );
     if (ret < 0)
     {
         C_FATAL("pthread_create ret %d, errno %d", ret, errno);
@@ -481,6 +505,9 @@ void calypso_main_t::stop_appthread(app_thread_context_t& thread_ctx)
         delete thread_ctx.out_;
         thread_ctx.out_ = NULL;
     }
+
+    thread_ctx.handler_->fina_(thread_ctx.app_inst_);
+    thread_ctx.app_inst_ = NULL;
 }
 
 int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
@@ -558,7 +585,8 @@ int calypso_main_t::restart_appthread(app_thread_context_t& old_ctx, app_thread_
     if (new_ctx.th_status_ != app_thread_context_t::app_stop)
     {
         C_WARN("deprecated thread ctx still running(%d)? this may cauz memleak", new_ctx.th_status_);
-        // dont exit
+        // dont exit, and stop this thread anyway
+        stop_appthread(new_ctx);
     }
 
     old_ctx.th_status_ = app_thread_context_t::app_deprecated;
@@ -590,7 +618,116 @@ void calypso_main_t::check_deprecated_threads(app_thread_context_t& thread_ctx)
     }
 }
 
-void* _app_thread_proc(void* args)
+void calypso_main_t::reload_config()
+{
+    // load runtime config
+    int ret;
+    ret = runtime_config_.load(bootstrap_config_.get_runtime_config_path());
+    if (ret < 0)
+    {
+        C_FATAL("load runtime config(%s) failed ret %d", bootstrap_config_.get_runtime_config_path(), ret);
+        return;
+    }
+
+    netlink_config_t oldcfg = netconfig_;
+    ret = netconfig_.load(bootstrap_config_.get_netlink_config_path());
+    if (ret < 0)
+    {
+        C_FATAL("load netconfig %s failed ret %d", bootstrap_config_.get_netlink_config_path(), ret);
+        return;
+    }
+
+    // create all links
+    netlink_config_t::walk_link_callback create_link_func = std::tr1::bind(&calypso_main_t::create_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
+    netlink_config_t::walk_link_callback close_link_func = std::tr1::bind(&calypso_main_t::close_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
+    netconfig_.walk_diff(oldcfg, close_link_func, create_link_func, NULL);
+    return;
+}
+
+int calypso_main_t::load_app_lib(const char* lib_path)
+{
+    const char* APP_INIT_FNAME = "app_initialize";
+    const char* APP_FINA_FNAME = "app_finalize";
+    const char* APP_HANDLE_TICK_FNAME = "app_handle_tick";
+    const char* APP_GET_MSGPACK_SIZE_FNAME = "app_get_msgpack_size";
+    const char* APP_HANDLE_MSGPACK_FNAME = "app_handle_msgpack";
+
+    app_handler_t app;
+    memset(&app, 0, sizeof(app));
+    void* new_dl = dlopen(lib_path, RTLD_NOW);
+    char* dl_error = dlerror();
+    if (dl_error)
+    {
+        C_FATAL("dlopen(%s) error %s", lib_path, dl_error);
+        return -1;
+    }
+
+    do 
+    {
+        app.init_ = (app_initialize_func_t)dlsym(new_dl, APP_INIT_FNAME);
+        dl_error = dlerror();
+        if (dl_error)
+        {
+            C_FATAL("dlsym(%s) error %s", APP_INIT_FNAME, dl_error);
+            break;
+        }
+
+        app.fina_ = (app_finalize_func_t)dlsym(new_dl, APP_FINA_FNAME);
+        dl_error = dlerror();
+        if (dl_error)
+        {
+            C_FATAL("dlsym(%s) error %s", APP_FINA_FNAME, dl_error);
+            break;
+        }
+
+        app.handle_tick_ = (app_handle_tick_func_t)dlsym(new_dl, APP_HANDLE_TICK_FNAME);
+        dl_error = dlerror();
+        if (dl_error)
+        {
+            C_FATAL("dlsym(%s) error %s", APP_HANDLE_TICK_FNAME, dl_error);
+            break;
+        }
+
+        app.get_msgpack_size_ = (app_get_msgpack_size_func_t)dlsym(new_dl, APP_GET_MSGPACK_SIZE_FNAME);
+        dl_error = dlerror();
+        if (dl_error)
+        {
+            C_FATAL("dlsym(%s) error %s", APP_GET_MSGPACK_SIZE_FNAME, dl_error);
+            break;
+        }
+
+        app.handle_msgpack_ = (app_handle_msgpack_func_t)dlsym(new_dl, APP_HANDLE_MSGPACK_FNAME);
+        dl_error = dlerror();
+        if (dl_error)
+        {
+            C_FATAL("dlsym(%s) error %s", APP_HANDLE_MSGPACK_FNAME, dl_error);
+            break;
+        }
+
+    } while (false);
+
+    if (dl_error)
+    {
+        dlclose(new_dl);
+        return -1;
+    }
+
+    if (app_dl_handler_)
+    {
+        dlclose(app_dl_handler_);
+    }
+
+    app_dl_handler_ = new_dl;
+    handler_ = app;
+    return 0;
+}
+
+void calypso_main_t::reg_app_handler( const app_handler_t& h )
+{
+    handler_ = h;
+}
+
+void* _app_thread_main(void* args)
 {
     app_thread_context_t* ctx = (app_thread_context_t*)args;
     int handle_msg_num;
@@ -609,7 +746,7 @@ void* _app_thread_proc(void* args)
     while (ctx->th_status_ != app_thread_context_t::app_stop && !fatal)
     {
         // app tick
-        ctx->handler_->handle_tick();
+        ctx->handler_->handle_tick_(ctx->app_inst_);
 
         handle_msg_num = 0;
         while (!fatal)
@@ -644,7 +781,7 @@ void* _app_thread_proc(void* args)
             {
                 C_TRACE("recv msgpack from mainthread, len:%d", clen);
                 memcpy(&msgctx, msg_buf, sizeof(msgctx));
-                ret = ctx->handler_->handle_msgpack(msgctx, &msg_buf[sizeof(msgctx)], clen - sizeof(msgctx));
+                ret = ctx->handler_->handle_msgpack_(ctx->app_inst_, &msgctx, &msg_buf[sizeof(msgctx)], clen - sizeof(msgctx));
                 // TODO: handle stat
                 ++handle_msg_num;
             }
@@ -669,4 +806,148 @@ void* _app_thread_proc(void* args)
     return NULL;
 }
 
-// TODO: main here
+void sig_handler(int sig)
+{
+    switch (sig)
+    {
+    case SIGHUP:
+        set_reload_time();
+        break;
+    case SIGQUIT:
+        set_stop_sig();
+        break;
+    case SIGTERM:
+        // restart app thread
+        set_restart_app_sig();
+        break;
+    default:
+        C_WARN("unsupported signal %d", sig);
+        break;
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// program utility
+//////////////////////////////////////////////////////////////////////////
+
+void save_pid(const pid_t pid, const char *pid_file) {
+    FILE *fp;
+    if (pid_file == NULL)
+        return;
+
+    if ((fp = fopen(pid_file, "w")) == NULL) {
+        fprintf(stderr, "Could not open the pid file %s for writing\n", pid_file);
+        return;
+    }
+
+    fprintf(fp,"%ld\n", (long)pid);
+    if (fclose(fp) == -1) {
+        fprintf(stderr, "Could not close the pid file %s.\n", pid_file);
+        return;
+    }
+}
+
+void remove_pidfile(const char *pid_file) {
+    if (pid_file == NULL)
+        return;
+
+    if (unlink(pid_file) != 0) {
+        fprintf(stderr, "Could not remove the pid file %s.\n", pid_file);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// program entry
+//////////////////////////////////////////////////////////////////////////
+
+DEFINE_bool(daemon, false, "run as daemon");
+DEFINE_string(pidfile, "", "specify pid file");
+DEFINE_string(conf, "app.json", "specify app launch config file");
+
+const char* USAGE_MSG = "calypso";
+const char* PROG_VERSION = "1.0.0";
+const int PROG_REVISION = 1;
+
+int main(int argc, char** argv)
+{
+    int ret;
+
+    /* set stderr non-buffering */
+    setbuf(stderr, NULL);
+
+    SetUsageMessage(USAGE_MSG);
+    SetVersionString(PROG_VERSION);
+    ParseCommandLineFlags(&argc, &argv, true);
+
+    if (FLAGS_daemon)
+    {
+        ret = daemon(1, 1);
+        if (ret < 0)
+        {
+            fprintf(stderr, "failed to daemon() in order to daemonize\n");
+            return -1;
+        }
+    }
+
+    // TODO: lock file!
+
+    if (!FLAGS_pidfile.empty())
+    {
+        save_pid(getpid(), FLAGS_pidfile.c_str());
+    }
+
+    // setup signal handler
+    clear_reload_time();
+    clear_stop_sig();
+    clear_restart_app_sig();
+    if (SIG_ERR == signal(SIGHUP, sig_handler))
+    {
+        fprintf(stderr, "can not catch SIGHUP\n");
+        return -1;
+    }
+
+    if (SIG_ERR == signal(SIGQUIT, sig_handler))
+    {
+        fprintf(stderr, "can not catch SIGQUIT\n");
+        return -1;
+    }
+
+    if (SIG_ERR == signal(SIGTERM, sig_handler))
+    {
+        fprintf(stderr, "can not catch SIGTERM\n");
+        return -1;
+    }
+
+    struct sigaction sa;
+    sa.sa_handler = SIG_IGN;
+    sa.sa_flags = 0;
+    if (sigemptyset(&sa.sa_mask) == -1 || sigaction(SIGPIPE, &sa, 0) == -1) 
+    {
+        fprintf(stderr, "failed to ignore SIGPIPE");
+        return -1;
+    }
+
+    // temporary basic config
+    BasicConfigurator::doConfigure();
+
+    calypso_main_t runner;
+    ret = runner.initialize(FLAGS_conf.c_str());
+    if (ret < 0)
+    {
+        fprintf(stderr, "calypso_main_t initialize failed %d\n", ret);
+        return -1;
+    }
+
+    runner.reg_app_handler(get_app_handler());
+    fprintf(stderr, "app launched successfully!\n");
+    runner.run();
+
+    if (!FLAGS_pidfile.empty())
+    {
+        // remove pid
+        remove_pidfile(FLAGS_pidfile.c_str());
+    }
+
+    fprintf(stderr, "goodbye!\n");
+    return 0;
+}
