@@ -191,7 +191,6 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
     msgpack_ctx.remote_ = link.get_remote_addr();
     msgpack_ctx.link_type_ = link.get_link_type();
     int fd = link.getfd();
-    char addr_str[64];
     int ret;
     if (evt & newlink_event)
     {
@@ -224,30 +223,40 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
             msgpack_ctx.flag_ |= mpf_closed_by_peer;
         }
 
-        int data_len = 0;
-        char* data = link.get_recv_buffer(data_len);
-        C_DEBUG("recv %d bytes from %s", data_len, link.get_remote_addr_str(addr_str, sizeof(addr_str)));
-        // has full msgpack?
-        int pack_len = handler_.get_msgpack_size_(&msgpack_ctx, data, data_len);
-        if (pack_len < 0)
+        int data_len;
+        char* data;
+        int pack_len;
+        while (true)
         {
-            C_ERROR("link(fd:%d) has bad msgpack, close it", fd);
-            link.close();
-            return -1;
-        }
-        else if (pack_len > 0)
-        {
-            ret = dispatch_msg_to_app(msgpack_ctx, data, pack_len);
-            if (ret < 0)
+            data_len = 0;
+            data = link.get_recv_buffer(data_len);
+            // has full msgpack?
+            pack_len = handler_.get_msgpack_size_(&msgpack_ctx, data, data_len);
+            if (pack_len < 0)
             {
-                C_ERROR("sendmsg_to_appthread(%p,%d) failed, ret %d", data, pack_len, ret);
+                C_ERROR("link(fd:%d) has bad msgpack, close it", fd);
+                link.close();
+                return -1;
             }
-
-            // NOTE: dispatch failure and pop recved msg cause msg lost
-            ret = link.pop_recv_buffer(pack_len);
-            if (ret != pack_len)
+            else if (pack_len > 0)
             {
-                C_FATAL("pop_recv_buffer(%d) but return %d", pack_len, ret);
+                ret = dispatch_msg_to_app(msgpack_ctx, data, pack_len);
+                if (ret < 0)
+                {
+                    C_ERROR("sendmsg_to_appthread(%p,%d) failed, ret %d", data, pack_len, ret);
+                }
+
+                // NOTE: dispatch failure and pop recved msg cause msg lost
+                ret = link.pop_recv_buffer(pack_len);
+                if (ret != pack_len)
+                {
+                    C_FATAL("pop_recv_buffer(%d) but return %d", pack_len, ret);
+                }
+            }
+            else
+            {
+                // no full msgpack
+                break;
             }
         }
     }
@@ -347,6 +356,7 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
 
 int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const char* data, size_t len )
 {
+    C_TRACE("prepare to dispatch msg(%p, %d) to app", data, (int)len);
     if (NULL == data) len = 0;
     app_thread_context_t& cur_ctx = app_ctx_[running_app_];
     int reserve_len = sizeof(msgctx)+len;

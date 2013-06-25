@@ -311,11 +311,13 @@ int netlink_t::recv()
 
     last_active_time_ = now_time_;
     int ret;
+    char addr_str[64];
     while (opt_.usr_rcvbuf_size_ > recv_buf_->used_) 
     {
         ret = ::recv(fd_, &recv_buf_->data_[recv_buf_->used_], opt_.usr_rcvbuf_size_ - recv_buf_->used_, 0);
         if (ret > 0)
         {
+            C_DEBUG("recv %d bytes from %s", ret, get_remote_addr_str(addr_str, sizeof(addr_str)));
             recv_buf_->used_ += ret;
             // extend
             if (recv_buf_->used_ == opt_.usr_rcvbuf_size_)
