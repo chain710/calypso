@@ -27,18 +27,22 @@ public:
     int init(int fd_capacity, int max_fired_num, dynamic_allocator_t* allocator);
     // 等待epoll事件，返回事件个数
     int wait(onevent_callback callback, void* up);
-    void recover(int max_recover_num);
+    void recover(int max_recover_num, int min_recover_interval);
     // NOTE: 检查connect超时用定时器实现。检查client/accept链路是否活跃，配置统一的值，而不是每个链路一个配置！
     void check_idle_netlink(int max_check_num, int max_idle_sec, int connect_timeout);
     // 按配置创建/关闭链路，返回创建netlink的下标
     int create_link(const netlink_config_t::config_item_t& config);
+    // 彻底关闭链路
     int close_link(int idx);
+    // 如果链路是accept下来的直接关闭，否则关闭并放入errorlist等待重启
+    int shutdown_link(int idx);
     void refresh_nowtime(time_t t) { nowtime_ = t; netlink_t::refresh_nowtime(t); }
     netlink_t* find_link(int idx) { return link_list_->get(idx); }
 private:
     calypso_network_t(const calypso_network_t&) {}
     netlink_t* get_link(int fd, int& idx);
     int accept_link(const netlink_t& parent);
+    // 关闭链路，回收资源
     int recycle_link(netlink_t& link);
     int init_one_link(int idx, netlink_t& node, void* up);
     int recover_one_link(int idx, netlink_t& node, void* up);

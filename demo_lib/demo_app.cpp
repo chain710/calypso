@@ -20,6 +20,11 @@ int demo_app_t::handle_msgpack( msgpack_context_t ctx, const char* pack, size_t 
         string msg;
         msg.append(pack, pack_len);
         LOG4CPLUS_DEBUG_FMT(logger_, "recv client msg(%s)\n", msg.c_str());
+        if (0 == msg.find("END"))
+        {
+            ctx.flag_ |= mpf_close_link;
+        }
+
         return calypso_send_msgpack_by_ctx(container_, &ctx, pack, pack_len);
     }
 }

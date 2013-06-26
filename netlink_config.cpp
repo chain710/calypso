@@ -8,8 +8,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#define MYPRINT(fmt, ...) printf(fmt, ##__VA_ARGS__)
-
 using namespace std;
 
 int netlink_config_t::load( const char* config_path )

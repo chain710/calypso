@@ -20,6 +20,7 @@ netlink_t::netlink_t()
     recv_buf_ = NULL;
     send_buf_ = NULL;
     last_active_time_ = 0;
+    last_recover_time_ = 0;
     memset(&opt_, 0, sizeof(opt_));
     listen_backlog_ = 128;
     on_status_change_ = NULL;
@@ -463,6 +464,8 @@ int netlink_t::clear()
         send_buf_ = NULL;
     }
 
+    last_recover_time_ = 0;
+
     return err;
 }
 
@@ -470,6 +473,7 @@ int netlink_t::recover()
 {
     if (client_link == opt_.ltype_ || server_link == opt_.ltype_)
     {
+        last_recover_time_ = now_time_;
         do_close();
         if (setup() < 0) return -1;
         return configure();

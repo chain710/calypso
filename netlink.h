@@ -96,6 +96,7 @@ public:
     link_opt_t get_opt() const { return opt_; }
     int get_sock_error() const;
     time_t get_last_active_time() const { return last_active_time_; }
+    time_t get_last_recover_time() const { return last_recover_time_; }
     // 是否有数据在用户发送缓冲区中待发送
     bool has_data_in_sendbuf() const { return send_buf_->used_ > 0; }
     static void refresh_nowtime(time_t t) { now_time_ = t; }
@@ -120,6 +121,7 @@ private:
     link_buffer_t* send_buf_;
 
     time_t last_active_time_;
+    time_t last_recover_time_;
     link_opt_t opt_;
     int listen_backlog_;
 

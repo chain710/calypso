@@ -10,6 +10,7 @@ extern "C"
     {
         mpf_closed_by_peer = 0x00000001,
         mpf_new_connection = 0x00000002,
+        mpf_close_link = 0x00000004,    // worker->dispatch 关闭对应链路
     };
 
     struct msgpack_context_t

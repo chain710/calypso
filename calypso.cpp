@@ -110,7 +110,6 @@ int calypso_main_t::initialize(const char* bootstrap_path)
     }
 
     nowtime_ = time(NULL);
-    network_.refresh_nowtime(nowtime_);
     last_reload_config_ = 0;
     return 0;
 }
@@ -131,7 +130,7 @@ void calypso_main_t::main()
         }
 
         // retry error connection
-        network_.recover(runtime_config_.get_max_recover_link_num());
+        network_.recover(runtime_config_.get_max_recover_link_num(), runtime_config_.get_min_recover_link_interval());
 
         // check idle links
         network_.check_idle_netlink(runtime_config_.get_max_check_link_num(), runtime_config_.get_max_tcp_idle(), runtime_config_.get_connect_timeout());
@@ -565,6 +564,14 @@ int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
         if (data_len > 0)
         {
             send_by_context(msgctx, &out_msg_buf_[sizeof(msgctx)], data_len);
+        }
+
+        // TODO: broadcast or something else?
+        if (msgctx.flag_ & mpf_close_link)
+        {
+            // ¹Ø±ÕÁ´Â·
+            C_DEBUG("app needs to shutdown this link %d", msgctx.link_ctx_);
+            network_.shutdown_link(msgctx.link_ctx_);
         }
     }
 

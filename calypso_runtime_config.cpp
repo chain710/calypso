@@ -31,6 +31,7 @@ int calypso_runtime_config_t::load( const char* config_path )
     app_queue_len_ = conf_root.get("app_queue_len", 10240).asInt();
     deprecated_thread_life_ = conf_root.get("deprecated_thread_life", 120).asInt();
     deprecated_thread_idle_life_ = conf_root.get("deprecated_thread_idle_life", 5).asInt();
+    min_netlink_recover_interval_ = conf_root.get("min_netlink_recover_interval", 3).asInt();
     string log_config = conf_root.get("log_config_path", "").asString();
     if (!log_config.empty())
     {
@@ -46,5 +47,6 @@ int calypso_runtime_config_t::load( const char* config_path )
     C_INFO("app_queue_len=%d", app_queue_len_);
     C_INFO("deprecated_thread_life=%d", deprecated_thread_life_);
     C_INFO("deprecated_thread_idle_life=%d", deprecated_thread_idle_life_);
+    C_INFO("min_netlink_recover_interval=%d", min_netlink_recover_interval_);
     return 0;
 }

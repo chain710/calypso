@@ -5,6 +5,11 @@
 using namespace std;
 using namespace std::tr1;
 
+struct recover_link_opt_t
+{
+    int min_recover_interval_;
+};
+
 calypso_network_t::calypso_network_t()
 {
     epfd_ = -1;
@@ -12,6 +17,7 @@ calypso_network_t::calypso_network_t()
     fd2idx_ = NULL;
     max_fired_num_ = 0;
     fired_events_ = NULL;
+    refresh_nowtime(time(NULL));
 }
 
 calypso_network_t::~calypso_network_t()
@@ -146,7 +152,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
         if (fired_events_[i].events & EPOLLOUT)
         {
             update_used_list(link_idx);
-            if (link->is_connecting())
+            if (link->is_connecting() && !link_err)
             {
                 events |= connect_event;
                 ret = link->get_sock_error();
@@ -167,7 +173,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
                     }
                 }
             }
-            else
+            else if (link->has_data_in_sendbuf())
             {
                 ret = link->send(NULL, 0);
                 if (ret < 0)
@@ -177,6 +183,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
                 }
                 else if (!link->has_data_in_sendbuf())
                 {
+                    // all sent out
                     cancel_epollout = true;
                 }
             }
@@ -444,6 +451,13 @@ int calypso_network_t::recover_one_link( int idx, netlink_t& node, void* up )
         return idx;
     }
 
+    // ∑¿÷π∆µ∑±recover
+    recover_link_opt_t* opt = (recover_link_opt_t*)up;
+    if ( opt && nowtime_ - node.get_last_recover_time() < opt->min_recover_interval_)
+    {
+        return idx;
+    }
+
     ret = node.recover();
     char remote_addr_str[64];
     char local_addr_str[64];
@@ -494,10 +508,12 @@ int calypso_network_t::recover_one_link( int idx, netlink_t& node, void* up )
     return next_idx;
 }
 
-void calypso_network_t::recover( int max_recover_num )
+void calypso_network_t::recover( int max_recover_num, int min_recover_interval )
 {
+    recover_link_opt_t opt;
+    opt.min_recover_interval_ = min_recover_interval;
     linked_list_t<netlink_t>::walk_list_callback recover_func = bind(&calypso_network_t::recover_one_link, this, placeholders::_1, placeholders::_2, placeholders::_3);
-    link_list_->walk_list(max_recover_num, lerror, NULL, recover_func);
+    link_list_->walk_list(max_recover_num, lerror, &opt, recover_func);
 }
 
 void calypso_network_t::update_used_list( int link_idx )
@@ -630,9 +646,29 @@ int calypso_network_t::close_link( int idx )
     netlink_t* link = link_list_->get(idx);
     if (NULL == link)
     {
-        printf("find no link[%d] when closing", idx);
+        C_ERROR("find no link[%d] when closing", idx);
         return -1;
     }
 
     return recycle_link(*link);
+}
+
+int calypso_network_t::shutdown_link( int idx )
+{
+    netlink_t* link = link_list_->get(idx);
+    if (NULL == link)
+    {
+        C_ERROR("find no link[%d] when shuting down", idx);
+        return -1;
+    }
+
+    if (link->get_link_type() == netlink_t::accept_link)
+    {
+        return recycle_link(*link);
+    }
+    else
+    {
+        link->close();
+        return move_link_to_error_list(*link);
+    }
 }
