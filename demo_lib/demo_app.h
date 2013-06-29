@@ -3,16 +3,9 @@
 
 //#include "timer_engine.h"
 #include <string.h>
-#include <log4cplus/logger.h>
-#include <log4cplus/loggingmacros.h>
-#include <log4cplus/configurator.h>
-#include <log4cplus/consoleappender.h>
-#include <log4cplus/layout.h>
-#include <log4cplus/helpers/pointer.h>
-#include <log4cplus/ndc.h>
-#include <log4cplus/hierarchy.h>
 #include "app_interface.h"
-
+#include "harvester.h"
+#include "demo_log.h"
 /*
 void* app_initialize(void* container);
 // Ïú»Ù
@@ -33,7 +26,9 @@ public:
     demo_app_t()
     {
         last_handle_reload_ = 0;
-        logger_ = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("dempapp"));
+        harvester_.create();
+        
+        harvester_.add_watch("test", "/tmp/log_harvest.log");
     }
 
     ~demo_app_t() {}
@@ -41,11 +36,14 @@ public:
     int handle_msgpack(msgpack_context_t ctx, const char*, size_t);
     void set_container(void* c) { container_ = c; }
 
-    void handle_timer(int64_t v);
+    //void handle_timer(int64_t v);
     time_t last_handle_reload_;
     //timer_engine_t timers_;
-    log4cplus::Logger logger_;
     void* container_;
+
+    LogHarvester harvester_;
+
+
 };
 
 #endif

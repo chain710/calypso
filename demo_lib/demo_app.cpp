@@ -19,7 +19,7 @@ int demo_app_t::handle_msgpack( msgpack_context_t ctx, const char* pack, size_t 
     {
         string msg;
         msg.append(pack, pack_len);
-        LOG4CPLUS_DEBUG_FMT(logger_, "recv client msg(%s)\n", msg.c_str());
+        L_DEBUG("recv client msg(%s)\n", msg.c_str());
         if (0 == msg.find("END"))
         {
             ctx.flag_ |= mpf_close_link;
@@ -34,12 +34,13 @@ void demo_app_t::handle_tick()
     if (calypso_need_reload(last_handle_reload_))
     {
         // process reload
-        LOG4CPLUS_DEBUG_FMT(logger_, "recv reload sig %u", (unsigned int)last_handle_reload_);
+        L_DEBUG("recv reload sig %u", (unsigned int)last_handle_reload_);
         last_handle_reload_ = time(NULL);
     }
 
     //timer_engine_t::timer_callback on_timer_func = std::tr1::bind(&demo_app_t::handle_timer, this, tr1::placeholders::_1);
     //timers_.walk(on_timer_func);
+    harvester_.event_check();
 }
 
 void* app_initialize( void* container )

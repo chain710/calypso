@@ -103,11 +103,13 @@ int ring_queue_t::get_consume_len() const
     extract_rb(rb, read_);
     if (rb.stx_ != RING_QUEUE_STX)
     {
+        // 校验位错误，queue broken?
         return -1;
     }
 
     if (get_used_len() < (int)rb.len_ + (int)sizeof(ring_block_t))
     {
+        // 数据不足，broken?
         return -1;
     }
 

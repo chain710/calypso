@@ -20,7 +20,7 @@ public:
     void finalize();
     // 预留数据块，等待append，返回 <0错误
     int produce_reserve(int len);
-    // 拷贝附加数据到队列
+    // 拷贝附加数据到队列，但是不移动指针，这样读线程不会读到append的数据
     int produce_append(const char* data, int len);
     // 拷贝数据到队列，返回错误码
     int produce(const char* data, int len);

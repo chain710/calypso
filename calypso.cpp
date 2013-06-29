@@ -771,8 +771,17 @@ void* _app_thread_main(void* args)
             // 处理inqueue消息
             // 消息格式：[msgctx][data..]
             clen = ctx->in_->get_consume_len();
+            if (clen < 0)
+            {
+                // TODO: fix when broken pipe
+                C_FATAL("get_consume_len ret %d, maybe broken", clen);
+                fatal = true;
+                break;
+            }
+
             if (msg_buf_size < clen)
             {
+                // 消息缓冲长度不足，重新分配
                 char* newbuf = new char[clen];
                 if (NULL == newbuf)
                 {
