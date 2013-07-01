@@ -5,7 +5,7 @@
 extern "C"
 {
 #endif
-
+    // TODO: dispatch是否有必要通知worker链路关闭？如果通知的话必须保证：1.相同fd被分配到相同worker，否则时序会导致问题
     enum msgpack_flag_t
     {
         mpf_closed_by_peer = 0x00000001,
@@ -30,8 +30,8 @@ extern "C"
     typedef void (*app_finalize_func_t)(void* app_inst);
     // 处理tick
     typedef void (*app_handle_tick_func_t)(void* app_inst);
-    // 返回buf中的package大小
-    typedef int (*app_get_msgpack_size_func_t)(const msgpack_context_t* ctx, const char*, size_t);
+    // 返回buf中的package大小, 注意：get_msgpack_size_是直接被主线程调用的，使用app_inst指针有危险！
+    typedef int (*app_get_msgpack_size_func_t)(void* app_inst, const msgpack_context_t* ctx, const char*, size_t);
     // 处理一个package
     typedef int (*app_handle_msgpack_func_t)(void* app_inst, const msgpack_context_t* ctx, const char*, size_t);
 

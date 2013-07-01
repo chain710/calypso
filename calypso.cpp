@@ -180,8 +180,10 @@ int calypso_main_t::close_link( int idx, const netlink_config_t::config_item_t& 
 
 int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int evt, void* up)
 {
+    // NOTE: 链路发生异常是否要通知app线程？
     if (evt & error_event) return 0;
 
+    app_thread_context_t& cur_ctx = app_ctx_[running_app_];
     msgpack_context_t msgpack_ctx;
     memset(&msgpack_ctx, 0, sizeof(msgpack_ctx));
     msgpack_ctx.link_ctx_ = link_idx;
@@ -194,11 +196,11 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
     if (evt & newlink_event)
     {
         msgpack_ctx.flag_ |= mpf_new_connection;
-        ret = dispatch_msg_to_app(msgpack_ctx, NULL, 0);
+        ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, NULL, 0);
         if (ret < 0)
         {
             char remote_addr_str[64];
-            C_ERROR("sendmsg_to_appthread(new connection from %s) failed(%d)", 
+            C_ERROR("dispatch_msg_to_app(new connection from %s) failed(%d)", 
                 link.get_remote_addr_str(remote_addr_str, sizeof(remote_addr_str)), ret);
             return -1;
         }
@@ -208,10 +210,11 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
 
     if (evt & data_arrival_event)
     {
+        bool closed_by_peer = false;
         ret = link.recv();
         if (ret < 0)
         {
-            C_ERROR("link(fd:%d) recv failed", fd);
+            C_ERROR("link(fd:%d) recv failed, now close it", fd);
             link.close();
             return -1;
         }
@@ -219,18 +222,20 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
         if (link.is_closed())
         {
             C_WARN("link(fd:%d) is closed by peer", fd);
-            msgpack_ctx.flag_ |= mpf_closed_by_peer;
+            closed_by_peer = true;
         }
 
         int data_len;
         char* data;
         int pack_len;
+        
         while (true)
         {
+            // TODO: 多worker时如何分派消息？1.按fd 2.定义回调get_route
             data_len = 0;
             data = link.get_recv_buffer(data_len);
             // has full msgpack?
-            pack_len = handler_.get_msgpack_size_(&msgpack_ctx, data, data_len);
+            pack_len = handler_.get_msgpack_size_(cur_ctx.app_inst_, &msgpack_ctx, data, data_len);
             if (pack_len < 0)
             {
                 C_ERROR("link(fd:%d) has bad msgpack, close it", fd);
@@ -239,7 +244,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
             }
             else if (pack_len > 0)
             {
-                ret = dispatch_msg_to_app(msgpack_ctx, data, pack_len);
+                ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, data, pack_len);
                 if (ret < 0)
                 {
                     C_ERROR("sendmsg_to_appthread(%p,%d) failed, ret %d", data, pack_len, ret);
@@ -256,6 +261,20 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
             {
                 // no full msgpack
                 break;
+            }
+        }
+
+        // 最后发送链路关闭消息
+        if (closed_by_peer)
+        {
+            msgpack_ctx.flag_ |= mpf_closed_by_peer;
+            ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, NULL, 0);
+            if (ret < 0)
+            {
+                char remote_addr_str[64];
+                C_ERROR("dispatch_msg_to_app(connection closed by %s) failed(%d)", 
+                    get_addr_str(msgpack_ctx.remote_, remote_addr_str, sizeof(remote_addr_str)), ret);
+                return -1;
             }
         }
     }
@@ -353,23 +372,22 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
     return ret;
 }
 
-int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const char* data, size_t len )
+int calypso_main_t::dispatch_msg_to_app( app_thread_context_t& ctx, const msgpack_context_t& msgctx, const char* data, size_t len )
 {
     C_TRACE("prepare to dispatch msg(%p, %d) to app", data, (int)len);
     if (NULL == data) len = 0;
-    app_thread_context_t& cur_ctx = app_ctx_[running_app_];
     int reserve_len = sizeof(msgctx)+len;
-    int rctx = cur_ctx.in_->produce_reserve(reserve_len);
+    int rctx = ctx.in_->produce_reserve(reserve_len);
     if (rctx < 0)
     {
-        C_ERROR("produce_reserve(%d) failed ret %d, oom? free=%d", reserve_len, rctx, cur_ctx.in_->get_free_len());
+        C_ERROR("produce_reserve(%d) failed ret %d, oom? free=%d", reserve_len, rctx, ctx.in_->get_free_len());
         return -1;
     }
 
     bool rq_err = true;
     do 
     {
-        int ret = cur_ctx.in_->produce_append((const char*)&msgctx, sizeof(msgctx));
+        int ret = ctx.in_->produce_append((const char*)&msgctx, sizeof(msgctx));
         if (ret < 0)
         {
             C_FATAL("produce msg ctx failed ret %d", ret);
@@ -378,7 +396,7 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
 
         if (data && len > 0)
         {
-            ret = cur_ctx.in_->produce_append(data, len);
+            ret = ctx.in_->produce_append(data, len);
             if (ret < 0)
             {
                 C_FATAL("produce msg content failed ret %d", ret);
@@ -386,7 +404,7 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
             }
         }
 
-        ret = cur_ctx.in_->produce_append(NULL, 0);
+        ret = ctx.in_->produce_append(NULL, 0);
         if (ret < 0)
         {
             C_FATAL("finishing produce msg failed ret %d", ret);
@@ -399,7 +417,7 @@ int calypso_main_t::dispatch_msg_to_app( const msgpack_context_t& msgctx, const 
     if (rq_err)
     {
         C_FATAL("find error in ring queue, try restart app thread! data(%p,%d)", data, (int)len);
-        cur_ctx.fatal_ = 1;
+        ctx.fatal_ = 1;
         return -1;
     }
 
@@ -659,84 +677,6 @@ void calypso_main_t::reload_config()
     netlink_config_t::walk_link_callback close_link_func = std::tr1::bind(&calypso_main_t::close_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
     netconfig_.walk_diff(oldcfg, close_link_func, create_link_func, NULL);
     return;
-}
-
-int calypso_main_t::load_app_lib(const char* lib_path)
-{
-    const char* APP_INIT_FNAME = "app_initialize";
-    const char* APP_FINA_FNAME = "app_finalize";
-    const char* APP_HANDLE_TICK_FNAME = "app_handle_tick";
-    const char* APP_GET_MSGPACK_SIZE_FNAME = "app_get_msgpack_size";
-    const char* APP_HANDLE_MSGPACK_FNAME = "app_handle_msgpack";
-
-    app_handler_t app;
-    memset(&app, 0, sizeof(app));
-    void* new_dl = dlopen(lib_path, RTLD_NOW);
-    char* dl_error = dlerror();
-    if (dl_error)
-    {
-        C_FATAL("dlopen(%s) error %s", lib_path, dl_error);
-        return -1;
-    }
-
-    do 
-    {
-        app.init_ = (app_initialize_func_t)dlsym(new_dl, APP_INIT_FNAME);
-        dl_error = dlerror();
-        if (dl_error)
-        {
-            C_FATAL("dlsym(%s) error %s", APP_INIT_FNAME, dl_error);
-            break;
-        }
-
-        app.fina_ = (app_finalize_func_t)dlsym(new_dl, APP_FINA_FNAME);
-        dl_error = dlerror();
-        if (dl_error)
-        {
-            C_FATAL("dlsym(%s) error %s", APP_FINA_FNAME, dl_error);
-            break;
-        }
-
-        app.handle_tick_ = (app_handle_tick_func_t)dlsym(new_dl, APP_HANDLE_TICK_FNAME);
-        dl_error = dlerror();
-        if (dl_error)
-        {
-            C_FATAL("dlsym(%s) error %s", APP_HANDLE_TICK_FNAME, dl_error);
-            break;
-        }
-
-        app.get_msgpack_size_ = (app_get_msgpack_size_func_t)dlsym(new_dl, APP_GET_MSGPACK_SIZE_FNAME);
-        dl_error = dlerror();
-        if (dl_error)
-        {
-            C_FATAL("dlsym(%s) error %s", APP_GET_MSGPACK_SIZE_FNAME, dl_error);
-            break;
-        }
-
-        app.handle_msgpack_ = (app_handle_msgpack_func_t)dlsym(new_dl, APP_HANDLE_MSGPACK_FNAME);
-        dl_error = dlerror();
-        if (dl_error)
-        {
-            C_FATAL("dlsym(%s) error %s", APP_HANDLE_MSGPACK_FNAME, dl_error);
-            break;
-        }
-
-    } while (false);
-
-    if (dl_error)
-    {
-        dlclose(new_dl);
-        return -1;
-    }
-
-    if (app_dl_handler_)
-    {
-        dlclose(app_dl_handler_);
-    }
-
-    app_dl_handler_ = new_dl;
-    handler_ = app;
-    return 0;
 }
 
 void calypso_main_t::reg_app_handler( const app_handler_t& h )

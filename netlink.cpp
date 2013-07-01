@@ -7,6 +7,7 @@
 #include <cstddef>
 
 const int DEFAULT_BUFFER_SIZE = 128;
+const int EXPAND_NETLINK_BUFSIZE = 4096;
 
 time_t netlink_t::now_time_ = 0;
 
@@ -323,7 +324,8 @@ int netlink_t::recv()
             // extend
             if (recv_buf_->used_ == opt_.usr_rcvbuf_size_)
             {
-                char* newbuf = allocator_->realloc(opt_.usr_rcvbuf_size_*2+sizeof(link_buffer_t), (char*)recv_buf_);
+                int ext_len = (opt_.usr_rcvbuf_size_ < EXPAND_NETLINK_BUFSIZE)? (opt_.usr_rcvbuf_size_*2): (recv_buf_->used_+EXPAND_NETLINK_BUFSIZE);
+                char* newbuf = allocator_->realloc(ext_len+sizeof(link_buffer_t), (char*)recv_buf_);
                 if (NULL == newbuf)
                 {
                     // NOTE: 两种处理方案
@@ -334,7 +336,7 @@ int netlink_t::recv()
                 }
 
                 recv_buf_ = (link_buffer_t*)newbuf;
-                opt_.usr_rcvbuf_size_ *= 2;
+                opt_.usr_rcvbuf_size_ = ext_len;
             }
         }
         else if (0 == ret)
