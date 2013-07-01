@@ -222,7 +222,6 @@ void LogHarvester::read_new_log( int fd )
             callback_(w.filename_, linebuf.substr(linebuf_off, log_len));
         }
         
-        linebuf.erase(linebuf_off, log_len+1);
         linebuf_off += log_len+1;
     } while (string::npos != delim_pos);
 
