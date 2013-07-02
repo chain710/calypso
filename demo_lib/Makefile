@@ -5,7 +5,7 @@ LIBS =
 C_ARGS = -g -Wall -D_FILE_OFFSET_BITS=64 -D__STDC_FORMAT_MACROS -D_REENTRANT $(INCLUDE) 
 
 BINARY = demo
-demo_dep = demo_app.o harvester.o
+demo_dep = demo_app.o
 demo_lib = -L../ -lcalypso_main -L/home/project/jsoncpp-src-0.6.0-rc2 -ljsoncpp -llog4cplus -lgflags -lpthread -ldl
 
 ALL_OBJS = $(foreach d,$(BINARY),$($(subst .,_,$(d))_dep))

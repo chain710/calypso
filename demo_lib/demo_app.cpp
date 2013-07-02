@@ -40,7 +40,6 @@ void demo_app_t::handle_tick()
 
     //timer_engine_t::timer_callback on_timer_func = std::tr1::bind(&demo_app_t::handle_timer, this, tr1::placeholders::_1);
     //timers_.walk(on_timer_func);
-    harvester_.event_check();
 }
 
 void* app_initialize( void* container )
@@ -62,7 +61,7 @@ void app_handle_tick( void* app_inst )
     app->handle_tick();
 }
 
-int app_get_msgpack_size( const msgpack_context_t* ctx, const char* data, size_t size )
+int app_get_msgpack_size( void* app_inst, const msgpack_context_t* ctx, const char* data, size_t size )
 {
     std::string tmp;
     tmp.assign(data, size);

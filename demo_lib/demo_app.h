@@ -4,7 +4,6 @@
 //#include "timer_engine.h"
 #include <string.h>
 #include "app_interface.h"
-#include "harvester.h"
 #include "demo_log.h"
 /*
 void* app_initialize(void* container);
@@ -26,9 +25,6 @@ public:
     demo_app_t()
     {
         last_handle_reload_ = 0;
-        harvester_.create();
-        
-        harvester_.add_watch("test", "/tmp/log_harvest.log");
     }
 
     ~demo_app_t() {}
@@ -40,8 +36,6 @@ public:
     time_t last_handle_reload_;
     //timer_engine_t timers_;
     void* container_;
-
-    LogHarvester harvester_;
 
 
 };
