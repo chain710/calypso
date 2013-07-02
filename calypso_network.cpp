@@ -81,7 +81,8 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
     netlink_t* link;
     unsigned int events;
     int link_idx;
-    char log_ndc[128];
+    char log_ndc[256];
+    char addr_str[32];
     bool link_err;
     bool cancel_epollout;
     epoll_event epevent;
@@ -93,15 +94,16 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
         events = 0;
         link_idx = -1;
         link = get_link(fired_events_[i].data.fd, link_idx);
-        snprintf(log_ndc, sizeof(log_ndc), "fd:%d,link_idx:%d", fired_events_[i].data.fd, link_idx);
-        C_CLEAR_NDC();
-        C_PUSH_NDC(log_ndc);
         if (NULL == link)
         {
             // ERROR
             C_ERROR("find no netlink by fd %d", fired_events_[i].data.fd);
             continue;
         }
+
+        snprintf(log_ndc, sizeof(log_ndc), "fd:%d,link_idx:%d", fired_events_[i].data.fd, link_idx);
+        C_CLEAR_NDC();
+        C_PUSH_NDC(log_ndc);
 
         if (fired_events_[i].events & (EPOLLERR | EPOLLHUP))
         {
@@ -117,10 +119,18 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
             if (link->get_link_type() == netlink_t::server_link)
             {
                 // NOTE:调用回调函数的参数是accept下来的link
+                netlink_t* parent = link;
+                C_DEBUG("new connection on %s", parent->get_local_addr_str(addr_str, sizeof(addr_str)));
                 link_idx = accept_link(*link);
                 link = link_list_->get(link_idx);
                 // accept出错暂不处理
-                if (NULL == link) continue;
+                if (NULL == link)
+                {
+                    C_ERROR("accept conn on %s failed %d", parent->get_local_addr_str(addr_str, sizeof(addr_str)), link_idx);
+                    continue;
+                }
+
+                C_DEBUG("new connection from %s accepted", link->get_remote_addr_str(addr_str, sizeof(addr_str)));
                 events |= newlink_event;
             }
             else
@@ -140,13 +150,15 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
                 ret = link->get_sock_error();
                 if (ret)
                 {
-                    C_ERROR("connecting sock encount error %d, close it", ret);
+                    C_ERROR("connecting sock(%s) encount error %d, close it", 
+                        link->get_remote_addr_str(addr_str, sizeof(addr_str)), ret);
                     link->close();
                     link_err = true;
                 }
                 else
                 {
-                    C_DEBUG("connecting sock %d handshake succ!", fired_events_[i].data.fd);
+                    C_DEBUG("connecting sock(%s) fd:%d handshake succ!", 
+                        link->get_remote_addr_str(addr_str, sizeof(addr_str)), fired_events_[i].data.fd);
                     ret = link->set_established();
                     if (ret < 0)
                     {
