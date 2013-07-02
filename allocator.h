@@ -64,6 +64,9 @@ public:
     int initialize(int max_allocator_num);
     // 注意:添加的allocator实际可分配单元比原来小sizeof(buffer_head_t)，因为每块单元要存储额外信息
     int add_allocator(fixed_size_allocator_t& allocator);
+    // 删除所有fixed_size_allocator_t
+    void remove_allocator();
+    // 分配长度s的buffer
     char* alloc(size_t s);
     buffer_addr_t alloc2(size_t s);
     // 重分配, 出错返回NULL, p依然可以使用，否则返回新地址

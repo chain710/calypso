@@ -46,9 +46,7 @@ public:
 
     virtual ~llrbtree_t()
     {
-        root_ = NULL;
-        delete nodes_;
-        nodes_ = NULL;
+        finalize();
     }
 
     int initialize(int capacity)
@@ -60,6 +58,17 @@ public:
         }
 
         return 0;
+    }
+
+    void finalize()
+    {
+        if (nodes_)
+        {
+            delete nodes_;
+            nodes_ = NULL;
+        }
+
+        root_ = NULL;
     }
 
     const rbtree_node_t* get_root() const { return root_; }

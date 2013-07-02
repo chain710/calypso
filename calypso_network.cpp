@@ -22,25 +22,7 @@ calypso_network_t::calypso_network_t()
 
 calypso_network_t::~calypso_network_t()
 {
-    if (link_list_)
-    {
-        delete link_list_;
-        link_list_ = NULL;
-    }
-
-    if (fd2idx_)
-    {
-        delete []fd2idx_;
-        fd2idx_ = NULL;
-    }
-
-    if (fired_events_)
-    {
-        delete []fired_events_;
-        fired_events_ = NULL;
-    }
-
-    close(epfd_);
+    fina();
 }
 
 int calypso_network_t::init( int fd_capacity, int max_fired_num, dynamic_allocator_t* allocator )
@@ -671,4 +653,28 @@ int calypso_network_t::shutdown_link( int idx )
         link->close();
         return move_link_to_error_list(*link);
     }
+}
+
+void calypso_network_t::fina()
+{
+    if (link_list_)
+    {
+        delete link_list_;
+        link_list_ = NULL;
+    }
+
+    if (fd2idx_)
+    {
+        delete []fd2idx_;
+        fd2idx_ = NULL;
+    }
+
+    if (fired_events_)
+    {
+        delete []fired_events_;
+        fired_events_ = NULL;
+    }
+
+    close(epfd_);
+    epfd_ = -1;
 }

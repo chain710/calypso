@@ -31,6 +31,11 @@ calypso_main_t::calypso_main_t()
 
 calypso_main_t::~calypso_main_t()
 {
+    // 1.销毁network
+    network_.fina();
+    // 2.销毁动态内存分配器
+    allocator_.remove_allocator();
+    // 3.销毁定长内存分配器
     if (subs_)
     {
         delete []subs_;
@@ -126,6 +131,7 @@ void calypso_main_t::main()
         if (need_reload(last_reload_config_))
         {
             reload_config();
+            app_global_reload();
             last_reload_config_ = nowtime_;
         }
 
@@ -196,7 +202,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
     if (evt & newlink_event)
     {
         msgpack_ctx.flag_ |= mpf_new_connection;
-        ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, NULL, 0);
+        ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, NULL, 0, NULL);
         if (ret < 0)
         {
             char remote_addr_str[64];
@@ -228,14 +234,17 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
         int data_len;
         char* data;
         int pack_len;
-        
+        char extrabuf[1024];    // 1KB enough for now
+        size_t extrabuf_len;
         while (true)
         {
             // TODO: 多worker时如何分派消息？1.按fd 2.定义回调get_route
+            msgpack_ctx.extrabuf_len_ = 0;  // clear extrbuf len
             data_len = 0;
             data = link.get_recv_buffer(data_len);
             // has full msgpack?
-            pack_len = handler_.get_msgpack_size_(cur_ctx.app_inst_, &msgpack_ctx, data, data_len);
+            extrabuf_len = sizeof(extrabuf);
+            pack_len = handler_.get_msgpack_size_(&msgpack_ctx, data, data_len, extrabuf, &extrabuf_len);
             if (pack_len < 0)
             {
                 C_ERROR("link(fd:%d) has bad msgpack, close it", fd);
@@ -244,7 +253,8 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
             }
             else if (pack_len > 0)
             {
-                ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, data, pack_len);
+                msgpack_ctx.extrabuf_len_ = extrabuf_len;
+                ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, data, pack_len, extrabuf);
                 if (ret < 0)
                 {
                     C_ERROR("sendmsg_to_appthread(%p,%d) failed, ret %d", data, pack_len, ret);
@@ -267,8 +277,9 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
         // 最后发送链路关闭消息
         if (closed_by_peer)
         {
+            msgpack_ctx.extrabuf_len_ = 0;
             msgpack_ctx.flag_ |= mpf_closed_by_peer;
-            ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, NULL, 0);
+            ret = dispatch_msg_to_app(cur_ctx, msgpack_ctx, NULL, 0, NULL);
             if (ret < 0)
             {
                 char remote_addr_str[64];
@@ -285,8 +296,15 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
 void calypso_main_t::run()
 {
     init_rand();
-
-    int ret = create_appthread(app_ctx_[running_app_]);
+    int ret;
+    ret = app_global_init();
+    if (ret < 0)
+    {
+        C_FATAL("app_global_init failed %d", ret);
+        exit(-1);
+    }
+    
+    ret = create_appthread(app_ctx_[running_app_]);
     if (ret < 0)
     {
         C_FATAL("create appthread failed %d", ret);
@@ -294,11 +312,19 @@ void calypso_main_t::run()
     }
 
     main();
+
+    app_global_fina();
 }
 
 int calypso_main_t::send_by_group( int group, const char* data, size_t len )
 {
     int linkid = netconfig_.get_rand_linkid_by_group(group);
+    if (linkid < 0)
+    {
+        C_ERROR("find no link by group %d, plz check link config or network status!", group);
+        return -1;
+    }
+
     netlink_t* link = network_.find_link(linkid);
     if (NULL == link)
     {
@@ -306,7 +332,18 @@ int calypso_main_t::send_by_group( int group, const char* data, size_t len )
         return -1;
     }
 
-    return link->send(data, len);
+    char link_addr_str[64];
+    int ret = link->send(data, len);
+    if (ret < 0)
+    {
+        C_ERROR("send data(%p, %d) by group to %s failed(%d)", data, (int)len, link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)), ret);
+    }
+    else
+    {
+        C_TRACE("send data(%p, %d) by group to %s succ", data, (int)len, link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)));
+    }
+
+    return ret;
 }
 
 void calypso_main_t::broadcast_by_group( int group, const char* data, size_t len )
@@ -372,11 +409,13 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
     return ret;
 }
 
-int calypso_main_t::dispatch_msg_to_app( app_thread_context_t& ctx, const msgpack_context_t& msgctx, const char* data, size_t len )
+int calypso_main_t::dispatch_msg_to_app( app_thread_context_t& ctx, 
+                                        const msgpack_context_t& msgctx, const char* data, size_t len, 
+                                        const char* extrabuf )
 {
     C_TRACE("prepare to dispatch msg(%p, %d) to app", data, (int)len);
     if (NULL == data) len = 0;
-    int reserve_len = sizeof(msgctx)+len;
+    int reserve_len = sizeof(msgctx)+len+msgctx.extrabuf_len_;
     int rctx = ctx.in_->produce_reserve(reserve_len);
     if (rctx < 0)
     {
@@ -387,19 +426,30 @@ int calypso_main_t::dispatch_msg_to_app( app_thread_context_t& ctx, const msgpac
     bool rq_err = true;
     do 
     {
+        // msg上下文
         int ret = ctx.in_->produce_append((const char*)&msgctx, sizeof(msgctx));
         if (ret < 0)
         {
             C_FATAL("produce msg ctx failed ret %d", ret);
             break;
         }
-
+        // 额外数据
+        if (extrabuf && msgctx.extrabuf_len_ > 0)
+        {
+            ret = ctx.in_->produce_append(extrabuf, msgctx.extrabuf_len_);
+            if (ret < 0)
+            {
+                C_FATAL("produce extra(%p, %d) content failed ret %d", extrabuf, msgctx.extrabuf_len_, ret);
+                break;
+            }
+        }
+        // msgpack
         if (data && len > 0)
         {
             ret = ctx.in_->produce_append(data, len);
             if (ret < 0)
             {
-                C_FATAL("produce msg content failed ret %d", ret);
+                C_FATAL("produce msg(%p, %d) content failed ret %d", data, (int)len, ret);
                 break;
             }
         }
@@ -462,9 +512,7 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
         return -1;
     }
 
-    thread_ctx.handler_ = &handler_;
-    thread_ctx.app_inst_ = handler_.init_(this);
-    thread_ctx.allocator_ = &allocator_;
+    // in queue
     thread_ctx.in_ = new ring_queue_t();
     if (NULL == thread_ctx.in_)
     {
@@ -479,6 +527,7 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
         return -1;
     }
 
+    // out queue
     thread_ctx.out_ = new ring_queue_t();
     if (NULL == thread_ctx.out_)
     {
@@ -493,7 +542,14 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
         return -1;
     }
 
+    // handler
+    thread_ctx.handler_ = &handler_;
+    app_init_option opt;
+    memset(&opt, 0, sizeof(opt));
+    opt.msg_queue_ = thread_ctx.out_;
+    thread_ctx.app_inst_ = handler_.init_(opt);
     thread_ctx.th_status_ = app_thread_context_t::app_running;
+
     // ONE LAST STEP
     pthread_create(&thread_ctx.th_, &thread_ctx.th_attr_, _app_thread_main, (void *)&thread_ctx );
     if (ret < 0)
@@ -581,10 +637,24 @@ int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
         memcpy(&msgctx, out_msg_buf_, sizeof(msgctx));
         if (data_len > 0)
         {
-            send_by_context(msgctx, &out_msg_buf_[sizeof(msgctx)], data_len);
+            if (tt_broadcast_group == msgctx.link_fd_)
+            {
+                broadcast_by_group(msgctx.link_ctx_, &out_msg_buf_[sizeof(msgctx)], data_len);
+            }
+            else if (tt_send_group == msgctx.link_fd_)
+            {
+                send_by_group(msgctx.link_ctx_, &out_msg_buf_[sizeof(msgctx)], data_len);
+            }
+            else if (msgctx.link_fd_ >= 0)
+            {
+                send_by_context(msgctx, &out_msg_buf_[sizeof(msgctx)], data_len);
+            }
+            else
+            {
+                C_ERROR("invalid link fd %d", msgctx.link_fd_);
+            }
         }
 
-        // TODO: broadcast or something else?
         if (msgctx.flag_ & mpf_close_link)
         {
             // 关闭链路
@@ -779,6 +849,7 @@ void sig_handler(int sig)
     case SIGHUP:
         set_reload_time();
         break;
+    case SIGINT:
     case SIGQUIT:
         set_stop_sig();
         break;
@@ -881,6 +952,12 @@ int main(int argc, char** argv)
     if (SIG_ERR == signal(SIGTERM, sig_handler))
     {
         fprintf(stderr, "can not catch SIGTERM\n");
+        return -1;
+    }
+
+    if (SIG_ERR == signal(SIGINT, sig_handler))
+    {
+        fprintf(stderr, "can not catch SIGINT\n");
         return -1;
     }
 

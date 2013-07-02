@@ -22,22 +22,19 @@ int app_handle_msgpack(void* app_inst, const msgpack_context_t* ctx, const char*
 class demo_app_t
 {
 public:
-    demo_app_t()
+    demo_app_t(app_init_option opt)
     {
         last_handle_reload_ = 0;
+        opt_ = opt;
     }
 
     ~demo_app_t() {}
     void handle_tick();
     int handle_msgpack(msgpack_context_t ctx, const char*, size_t);
-    void set_container(void* c) { container_ = c; }
 
     //void handle_timer(int64_t v);
     time_t last_handle_reload_;
-    //timer_engine_t timers_;
-    void* container_;
-
-
+    app_init_option opt_;
 };
 
 #endif

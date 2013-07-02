@@ -271,3 +271,8 @@ dynamic_allocator_t::buffer_addr_t dynamic_allocator_t::ptr2addr( char* p )
     ret.idx_ = a->allocator_->get_idx((char*)h);
     return ret;
 }
+
+void dynamic_allocator_t::remove_allocator()
+{
+    allocators_.finalize();
+}

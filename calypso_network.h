@@ -25,6 +25,7 @@ public:
     calypso_network_t();
     virtual ~calypso_network_t();
     int init(int fd_capacity, int max_fired_num, dynamic_allocator_t* allocator);
+    void fina();
     // 等待epoll事件，返回事件个数
     int wait(onevent_callback callback, void* up);
     void recover(int max_recover_num, int min_recover_interval);

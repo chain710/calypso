@@ -20,9 +20,8 @@ struct app_thread_context_t
 
     app_handler_t* handler_;
     void* app_inst_;
-    ring_queue_t* in_;  // 输入消息队列
-    ring_queue_t* out_; // 输出消息队列
-    dynamic_allocator_t* allocator_;
+    ring_queue_t* in_;  // 输入消息队列 dispatch->app
+    ring_queue_t* out_; // 输出消息队列 app->dispatch
     pthread_t th_;
     pthread_attr_t th_attr_;
     pthread_mutex_t th_mutex_;
@@ -68,13 +67,13 @@ private:
     int close_link(int idx, const netlink_config_t::config_item_t& config, void* up);
     // 网络事件回调
     int on_net_event(int link_idx, netlink_t&, unsigned int evt, void*);
-    // 将消息发送给应用线程, data could be null, simply send ctx under this situation
-    int dispatch_msg_to_app(app_thread_context_t& ctx, const msgpack_context_t& msgctx, const char* data, size_t len);
+    // 将消息发送给应用线程, simply send ctx if data==null
+    int dispatch_msg_to_app(app_thread_context_t& ctx, const msgpack_context_t& msgctx, const char* data, size_t len, const char* extrabuf);
     // 从应用线程获取消息并转发
     int process_appthread_msg(app_thread_context_t& thread_ctx);
     // 检查弃用线程
     void check_deprecated_threads(app_thread_context_t& thread_ctx);
-
+    // do staff like dispatching msg, checking signal .etc
     void main();
 
     void reload_config();

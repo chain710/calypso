@@ -13,7 +13,7 @@ int demo_app_t::handle_msgpack( msgpack_context_t ctx, const char* pack, size_t 
     {
         char hello_msg[128];
         snprintf(hello_msg, sizeof(hello_msg), "welcome to rapture!\r\n");
-        return calypso_send_msgpack_by_ctx(container_, &ctx, hello_msg, strlen(hello_msg));
+        return calypso_send_msgpack_by_ctx(opt_.msg_queue_, &ctx, hello_msg, strlen(hello_msg));
     }
     else
     {
@@ -25,7 +25,7 @@ int demo_app_t::handle_msgpack( msgpack_context_t ctx, const char* pack, size_t 
             ctx.flag_ |= mpf_close_link;
         }
 
-        return calypso_send_msgpack_by_ctx(container_, &ctx, pack, pack_len);
+        return calypso_send_msgpack_by_ctx(opt_.msg_queue_, &ctx, pack, pack_len);
     }
 }
 
@@ -42,10 +42,9 @@ void demo_app_t::handle_tick()
     //timers_.walk(on_timer_func);
 }
 
-void* app_initialize( void* container )
+void* app_initialize( app_init_option opt )
 {
-    demo_app_t* r = new demo_app_t;
-    r->set_container(container);
+    demo_app_t* r = new demo_app_t(opt);
     return r;
 }
 
@@ -61,8 +60,13 @@ void app_handle_tick( void* app_inst )
     app->handle_tick();
 }
 
-int app_get_msgpack_size( void* app_inst, const msgpack_context_t* ctx, const char* data, size_t size )
+int app_get_msgpack_size( const msgpack_context_t* ctx, const char* data, size_t size, char* extrabuf, size_t* extrabuf_len )
 {
+    if (extrabuf_len)
+    {
+        *extrabuf_len = 0;
+    }
+
     std::string tmp;
     tmp.assign(data, size);
     std::string::size_type pos = tmp.find("\r\n");
@@ -90,4 +94,19 @@ app_handler_t get_app_handler()
     h.handle_msgpack_ = app_handle_msgpack;
     h.handle_tick_ = app_handle_tick;
     return h;
+}
+int app_global_init()
+{
+    L_TRACE("app_global_init%s", "");
+    return 0;
+}
+
+void app_global_reload()
+{
+    L_TRACE("app_global_reload%s", "");
+}
+
+void app_global_fina()
+{
+    L_TRACE("app_global_fina%s", "");
 }
