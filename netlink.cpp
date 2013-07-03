@@ -256,7 +256,7 @@ int netlink_t::set_sock_buffer_size( int snd, int rcv )
         ret = setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, &optval, optlen);
         if (ret < 0)
         {
-            C_ERROR("set sendbuf(%d) error(%d)", snd, errno);
+            C_ERROR("set fd(%d) sendbuf(%d) error(%d)", fd_, snd, errno);
             return -1;
         }
     }
@@ -267,7 +267,7 @@ int netlink_t::set_sock_buffer_size( int snd, int rcv )
         ret = setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &optval, optlen);
         if (ret < 0)
         {
-            C_ERROR("set recvbuf(%d) error(%d)", rcv, errno);
+            C_ERROR("set fd(%d) recvbuf(%d) error(%d)", fd_, rcv, errno);
             return -1;
         }
     }
@@ -637,5 +637,23 @@ int netlink_t::configure()
         return listen(listen_backlog_);
     default:
         return 0;
+    }
+}
+
+void netlink_t::update_opt( link_opt_t opt )
+{
+    if (opt.ltype_ != opt_.ltype_)
+    {
+        C_FATAL("link fd:%d type has changed, MEMORY CORRUPT? old=%d new=%d, this link WILL NOT be updated", fd_, opt_.ltype_, opt.ltype_);
+        return;
+    }
+
+    opt_.mask_ = opt.mask_;
+    opt_.flag_ = opt.flag_;
+    int err = set_sock_buffer_size(opt.sys_sndbuf_size_, opt.sys_rcvbuf_size_);
+    if (0 == err)
+    {
+        opt_.sys_rcvbuf_size_ = opt.sys_rcvbuf_size_;
+        opt_.sys_sndbuf_size_ = opt.sys_sndbuf_size_;
     }
 }

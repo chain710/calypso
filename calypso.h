@@ -59,6 +59,8 @@ private:
     int create_link(int idx, const netlink_config_t::config_item_t& config, void* up);
     // 关闭链路
     int close_link(int idx, const netlink_config_t::config_item_t& config, void* up);
+    // 更新链路option
+    int update_link( int idx, const netlink_config_t::config_item_t& config, void* up );
     // 网络事件回调
     int on_net_event(int link_idx, netlink_t&, unsigned int evt, void*);
     // 将消息发送给应用线程, simply send ctx if data==null
@@ -69,7 +71,7 @@ private:
     void main();
 
     void reload_config();
-
+    
     dynamic_allocator_t allocator_;
     fixed_size_allocator_t* subs_;
     calypso_network_t network_;

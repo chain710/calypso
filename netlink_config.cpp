@@ -86,7 +86,11 @@ void netlink_config_t::walk( walk_link_callback callback, void* up )
     }
 }
 
-void netlink_config_t::walk_diff( const netlink_config_t& old, walk_link_callback close_callback, walk_link_callback open_callback, void* up )
+void netlink_config_t::walk_diff( const netlink_config_t& old, 
+                                 const walk_link_callback& close_callback, 
+                                 const walk_link_callback& open_callback, 
+                                 const walk_link_callback& update_callback, 
+                                 void* up )
 {
     Json::Value& newlinks = conf_["links"];
     string link_sig;
@@ -124,13 +128,20 @@ void netlink_config_t::walk_diff( const netlink_config_t& old, walk_link_callbac
         }
     }
 
-    // 遍历剩下新增的
+    // 遍历剩下新增和没变化的
+    int link_id;
     for (int i = 0; i < (int)newlinks.size(); ++i)
     {
-        if (newlinks[i].get("_link_id", -1) < 0)
+        make_config_item(newlinks[i], config_item);
+        link_id = newlinks[i].get("_link_id", -1).asInt();
+        if (link_id < 0)
         {
-            make_config_item(newlinks[i], config_item);
             newlinks[i]["_link_id"] = open_callback(-1, config_item, up);
+        }
+        else
+        {
+            // 以前就有的，更新option
+            newlinks[i]["_link_id"] = update_callback(link_id, config_item, up);
         }
     }
 }

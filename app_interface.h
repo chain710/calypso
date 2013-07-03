@@ -33,6 +33,7 @@ extern "C"
 
     struct app_init_option
     {
+        int th_idx_;
         void* msg_queue_;
     };
 

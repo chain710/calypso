@@ -34,7 +34,7 @@ void demo_app_t::handle_tick()
     if (calypso_need_reload(last_handle_reload_))
     {
         // process reload
-        L_DEBUG("recv reload sig %u", (unsigned int)last_handle_reload_);
+        L_DEBUG("[thread %d] recv reload sig %u", opt_.th_idx_, (unsigned int)last_handle_reload_);
         last_handle_reload_ = time(NULL);
     }
 

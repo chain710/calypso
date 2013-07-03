@@ -81,7 +81,6 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
     netlink_t* link;
     unsigned int events;
     int link_idx;
-    char log_ndc[256];
     char addr_str[32];
     bool link_err;
     bool cancel_epollout;
@@ -100,10 +99,6 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
             C_ERROR("find no netlink by fd %d", fired_events_[i].data.fd);
             continue;
         }
-
-        snprintf(log_ndc, sizeof(log_ndc), "fd:%d,link_idx:%d", fired_events_[i].data.fd, link_idx);
-        C_CLEAR_NDC();
-        C_PUSH_NDC(log_ndc);
 
         if (fired_events_[i].events & (EPOLLERR | EPOLLHUP))
         {
@@ -572,24 +567,7 @@ int calypso_network_t::create_link( const netlink_config_t::config_item_t& confi
 
     int create_idx = link_list_->get_tail(lused);
     netlink_t* link = link_list_->get(create_idx);
-    netlink_t::link_opt_t opt;
-    memset(&opt, 0, sizeof(opt));
-    if (0 == strcmp("listen", config.type_))
-    {
-        opt.ltype_ = netlink_t::server_link;
-        if (config.reuse_addr_) opt.flag_ |= netlink_t::lf_reuseaddr;
-    }
-    else
-    {
-        opt.ltype_ = netlink_t::client_link;
-        if (config.keep_alive_) opt.flag_ |= netlink_t::lf_keepalive;
-    }
-
-    opt.sys_rcvbuf_size_ = config.sys_recv_buffer_;
-    opt.sys_sndbuf_size_ = config.sys_send_buffer_;
-    opt.usr_rcvbuf_size_ = config.usr_recv_buffer_;
-    opt.usr_sndbuf_size_ = config.usr_send_buffer_;
-    opt.mask_ = config.mask_;
+    netlink_t::link_opt_t opt = netlink_config_to_option(config);
 
     bool succ = false;
     do 
@@ -690,4 +668,42 @@ void calypso_network_t::fina()
 
     close(epfd_);
     epfd_ = -1;
+}
+
+int calypso_network_t::update_link( int idx, const netlink_config_t::config_item_t& config )
+{
+    netlink_t::link_opt_t newopt = netlink_config_to_option(config);
+    netlink_t* link = link_list_->get(idx);
+    if (NULL == link)
+    {
+        C_ERROR("find no link by idx %d, config-network correspondence may be broken!", idx);
+        return idx;
+    }
+
+    link->update_opt(newopt);
+    return idx;
+}
+
+netlink_t::link_opt_t netlink_config_to_option( const netlink_config_t::config_item_t& config )
+{
+    netlink_t::link_opt_t opt;
+    memset(&opt, 0, sizeof(opt));
+    if (0 == strcmp("listen", config.type_))
+    {
+        opt.ltype_ = netlink_t::server_link;
+        if (config.reuse_addr_) opt.flag_ |= netlink_t::lf_reuseaddr;
+    }
+    else
+    {
+        opt.ltype_ = netlink_t::client_link;
+        if (config.keep_alive_) opt.flag_ |= netlink_t::lf_keepalive;
+    }
+
+    opt.sys_rcvbuf_size_ = config.sys_recv_buffer_;
+    opt.sys_sndbuf_size_ = config.sys_send_buffer_;
+    opt.usr_rcvbuf_size_ = config.usr_recv_buffer_;
+    opt.usr_sndbuf_size_ = config.usr_send_buffer_;
+    opt.mask_ = config.mask_;
+
+    return opt;
 }

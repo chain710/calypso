@@ -215,6 +215,11 @@ int calypso_main_t::close_link( int idx, const netlink_config_t::config_item_t& 
     return network_.close_link(idx);
 }
 
+int calypso_main_t::update_link( int idx, const netlink_config_t::config_item_t& config, void* up )
+{
+    return network_.update_link(idx, config);
+}
+
 int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int evt, void* up)
 {
     // NOTE: 链路发生异常是否要通知app线程？
@@ -606,6 +611,7 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
     app_init_option opt;
     memset(&opt, 0, sizeof(opt));
     opt.msg_queue_ = thread_ctx.out_;
+    opt.th_idx_ = thread_ctx.th_idx_;
     thread_ctx.app_inst_ = handler_.init_(opt);
     thread_ctx.th_status_ = app_thread_context_t::app_running;
     thread_ctx.fatal_ = 0;
@@ -765,7 +771,9 @@ void calypso_main_t::reload_config()
     // create all links
     netlink_config_t::walk_link_callback create_link_func = std::tr1::bind(&calypso_main_t::create_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
     netlink_config_t::walk_link_callback close_link_func = std::tr1::bind(&calypso_main_t::close_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
-    netconfig_.walk_diff(oldcfg, close_link_func, create_link_func, NULL);
+    netlink_config_t::walk_link_callback update_link_func = std::tr1::bind(&calypso_main_t::update_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
+    netconfig_.walk_diff(oldcfg, close_link_func, create_link_func, update_link_func, NULL);
+    //netconfig_.walk();
     return;
 }
 

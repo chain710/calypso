@@ -31,7 +31,11 @@ public:
 
     int load(const char* config_path);
     void walk(walk_link_callback callback, void* up);
-    void walk_diff(const netlink_config_t& old, walk_link_callback close_callback, walk_link_callback open_callback, void* up);
+    void walk_diff(const netlink_config_t& old, 
+        const walk_link_callback& close_callback, 
+        const walk_link_callback& open_callback, 
+        const walk_link_callback& update_callback, 
+        void* up);
     void get_listen_config();
     void get_connect_config();
     std::vector<int> get_linkid_by_group(int group) const;

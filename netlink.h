@@ -77,6 +77,7 @@ public:
     int recover();
     int getfd() const { return fd_; }
     int set_established();
+    void update_opt(link_opt_t opt);
     
     bool is_established() const { return status_ == nsc_established; }
     bool is_closed() const { return status_ == nsc_closed; }

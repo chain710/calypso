@@ -35,6 +35,8 @@ public:
     int create_link(const netlink_config_t::config_item_t& config);
     // 彻底关闭链路
     int close_link(int idx);
+    // 更新链路option
+    int update_link(int idx, const netlink_config_t::config_item_t& config);
     // 如果链路是accept下来的直接关闭，否则关闭并放入errorlist等待重启
     int shutdown_link(int idx);
     void refresh_nowtime(time_t t) { nowtime_ = t; netlink_t::refresh_nowtime(t); }
@@ -69,5 +71,9 @@ private:
     epoll_event* fired_events_;
     time_t nowtime_;
 };
+
+
+// linkconfig to linkopt
+netlink_t::link_opt_t netlink_config_to_option(const netlink_config_t::config_item_t& config);
 
 #endif
