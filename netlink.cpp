@@ -312,7 +312,7 @@ int netlink_t::recv()
     }
 
     last_active_time_ = now_time_;
-    int ret;
+    int ret, rlen = 0;
     char addr_str[64];
     while (opt_.usr_rcvbuf_size_ > recv_buf_->used_) 
     {
@@ -322,6 +322,7 @@ int netlink_t::recv()
             C_DEBUG("recv %d bytes from %s", ret, get_remote_addr_str(addr_str, sizeof(addr_str)));
             recv_buf_->used_ += ret;
             // extend
+            rlen += ret;
             if (recv_buf_->used_ == opt_.usr_rcvbuf_size_)
             {
                 int ext_len = (opt_.usr_rcvbuf_size_ < EXPAND_NETLINK_BUFSIZE)? (opt_.usr_rcvbuf_size_*2): (recv_buf_->used_+EXPAND_NETLINK_BUFSIZE);
@@ -358,7 +359,7 @@ int netlink_t::recv()
         }
     }
     
-    return 0;
+    return rlen;
 }
 
 int netlink_t::copy_data_to_send_buffer(const char* buffer, int len)

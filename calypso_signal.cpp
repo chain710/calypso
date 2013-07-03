@@ -36,18 +36,4 @@ void clear_stop_sig()
     stop_sig_ = 0;
 }
 
-bool need_restart_app()
-{
-    return restart_sig_ > 0;
-}
-
-void set_restart_app_sig()
-{
-    restart_sig_ = 1;
-}
-
-void clear_restart_app_sig()
-{
-    restart_sig_ = 0;
-}
 

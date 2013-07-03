@@ -2,6 +2,7 @@
 #include "log_interface.h"
 #include <fstream>
 #include <time.h>
+#include <string.h>
 #include <arpa/inet.h>
 
 using namespace std;
@@ -52,4 +53,26 @@ const char* get_addr_str( sockaddr_in addr, char* buf, int size )
 {
     snprintf(buf, size, "%s:%d", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
     return buf;
+}
+
+void format_time( time_t time, const char* fmt, char *buf, size_t length )
+{
+    struct tm *tmp;
+    tmp = localtime(&time);
+    if (tmp)
+    {
+        strftime(buf, length, fmt, tmp);
+    }
+    else if (buf && length > 0)
+    {
+        buf[0] = '\0';
+    }
+}
+
+time_t format_time(const char* time_str, const char* fmt)
+{
+    struct tm tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    strptime(time_str, fmt, &tmp);
+    return mktime(&tmp);
 }

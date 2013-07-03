@@ -13,6 +13,7 @@ public:
     int get_deprecated_thread_life() const { return 0; }
     int get_deprecated_thread_idle_life() const { return 0; }
     int get_min_recover_link_interval() const { return min_netlink_recover_interval_; }
+    int get_stat_interval() const { return stat_interval_; }
 private:
     int connect_timeout_;
     int max_tcp_idle_;
@@ -22,6 +23,7 @@ private:
     int deprecated_thread_life_;
     int deprecated_thread_idle_life_;
     int min_netlink_recover_interval_;
+    int stat_interval_;
 };
 
 #endif

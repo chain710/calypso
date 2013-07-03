@@ -25,6 +25,7 @@ int calypso_bootstrap_config_t::load( const char* config_path )
     max_link_num_ = conf_root.get("max_link_num", 1024).asInt();
     max_fired_link_num_ = conf_root.get("max_fired_link_num", 1024).asInt();
     runtime_config_path_ = conf_root.get("runtime_config", "runtime.json").asString();
+    thread_num_ = conf_root.get("thread_num", 1).asInt();
 
     Json::Value& allocator_array = conf_root["mem_allocator"];
     if (!allocator_array.isArray())
@@ -53,6 +54,7 @@ int calypso_bootstrap_config_t::load( const char* config_path )
     C_INFO("netlink_config=%s", netlink_config_path_.c_str());
     C_INFO("max_link_num=%d", max_link_num_);
     C_INFO("max_fired_link_num=%d", max_fired_link_num_);
+    C_INFO("thread_num=%d", thread_num_);
     C_INFO("mem_allocator:%s", "");
     for (int i = 0; i < (int)allocator_config_.size(); ++i)
     {

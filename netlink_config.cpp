@@ -168,6 +168,7 @@ void netlink_config_t::make_config_item( const Json::Value& item, config_item_t&
     out.back_log_ = item.get("back_log", 128).asInt();
     out.keep_alive_ = item.get("keep_alive", true).asBool()? 1: 0;
     out.reuse_addr_ = item.get("reuse_addr", true).asBool()? 1: 0;
+    out.mask_ = item.get("mask", 0xFFFFFFFF).asUInt();
 }
 
 std::vector<int> netlink_config_t::get_linkid_by_group( int group ) const

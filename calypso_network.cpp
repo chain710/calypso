@@ -589,6 +589,7 @@ int calypso_network_t::create_link( const netlink_config_t::config_item_t& confi
     opt.sys_sndbuf_size_ = config.sys_send_buffer_;
     opt.usr_rcvbuf_size_ = config.usr_recv_buffer_;
     opt.usr_sndbuf_size_ = config.usr_send_buffer_;
+    opt.mask_ = config.mask_;
 
     bool succ = false;
     do 

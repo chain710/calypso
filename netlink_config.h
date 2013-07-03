@@ -22,6 +22,7 @@ public:
         int usr_send_buffer_;
         int usr_recv_buffer_;
         int back_log_;
+        unsigned int mask_; // control if event happened on this link is allowed to be transfered to appthread
         unsigned reuse_addr_:1;
         unsigned keep_alive_:1;
     };

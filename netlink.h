@@ -18,6 +18,7 @@ public:
         int sys_sndbuf_size_;
         int sys_rcvbuf_size_;
         unsigned int flag_;
+        unsigned int mask_;
     };
 
     enum link_flag_t
@@ -65,6 +66,7 @@ public:
     int bind(const char* ip, unsigned short port);
     int listen(int backlog);
     int connect(const char* ip, unsigned short port);
+    // >=0 返回收到的包长度，是否关闭用is_close判断, <0出错
     int recv();
     int send(const char* buf, int len);
     // 关闭链路，但是不归还缓存，可以recover
@@ -100,6 +102,7 @@ public:
     // 是否有数据在用户发送缓冲区中待发送
     bool has_data_in_sendbuf() const { return send_buf_->used_ > 0; }
     static void refresh_nowtime(time_t t) { now_time_ = t; }
+    bool is_bit_allowed(unsigned int bit) const { return (opt_.mask_ & bit) > 0; }
 private:
     // deny copy-cons
     netlink_t(const netlink_t& c) {}

@@ -38,7 +38,7 @@ public:
     const alloc_conf_list_t& get_allocator_config() const { return allocator_config_; }
     int get_max_link_num() const { return max_link_num_; }
     int get_max_fired_link_num() const { return max_fired_link_num_; }
-
+    int get_thread_num() const { return thread_num_; }
 private:
     std::string netlink_config_path_;
     std::string runtime_config_path_;
@@ -46,6 +46,7 @@ private:
 
     int max_link_num_;
     int max_fired_link_num_;
+    int thread_num_;
 };
 
 #endif

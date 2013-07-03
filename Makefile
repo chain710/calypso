@@ -10,7 +10,7 @@ ARFLAGS = rcs
 BINARY = libcalypso_main.a
 libcalypso_main_a_dep = calypso.o allocator.o netlink.o netlink_config.o \
         calypso_network.o calypso_bootstrap_config.o calypso_runtime_config.o calypso_signal.o \
-        utility.o ring_queue.o app_interface.o timer_engine.o
+        utility.o ring_queue.o app_interface.o timer_engine.o calypso_stat.o main.o
 
 ALL_OBJS = $(foreach d,$(BINARY),$($(subst .,_,$(d))_dep))
 
