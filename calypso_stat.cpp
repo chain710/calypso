@@ -110,7 +110,7 @@ void calypso_stat_t::write_and_clear()
     STAT_LOG("==============stat at %s==============", time_str);
     STAT_LOG("[bytes] up:%d down:%d", recv_bytes_, send_bytes_);
     STAT_LOG("[packs] up:%d down:%d", recv_packs_, send_packs_);
-    STAT_LOG("[conns] accept:%d closed:%d", accept_conn_num_, closed_conn_num_);
+    STAT_LOG("[conns] accept:%d closed:%d error:%d", accept_conn_num_, closed_conn_num_, error_conn_num_);
     for (int i = 0; i < thread_num_; ++i)
     {
         STAT_LOG("thread[%d]", i);
