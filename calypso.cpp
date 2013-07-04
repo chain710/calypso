@@ -284,7 +284,6 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
         size_t extrabuf_len;
         while (true)
         {
-            // TODO: 多worker时如何分派消息？1.按fd 2.定义回调get_route
             msgpack_ctx.extrabuf_len_ = 0;  // clear extrbuf len
             data_len = 0;
             data = link.get_recv_buffer(data_len);
@@ -375,17 +374,10 @@ void calypso_main_t::run()
 
 int calypso_main_t::send_by_group( int group, const char* data, size_t len )
 {
-    int linkid = netconfig_.get_rand_linkid_by_group(group);
-    if (linkid < 0)
-    {
-        C_ERROR("find no link by group %d, plz check link config or network status!", group);
-        return -1;
-    }
-
-    netlink_t* link = network_.find_link(linkid);
+    netlink_t* link = pick_rand_link(group);
     if (NULL == link)
     {
-        C_ERROR("find link by %d failed, group %d", linkid, group);
+        C_ERROR("find no link by group %d, plz check netlinkconfig or net status", group);
         return -1;
     }
 
@@ -410,12 +402,13 @@ void calypso_main_t::broadcast_by_group( int group, const char* data, size_t len
     vector<int> linkids = netconfig_.get_linkid_by_group(group);
     netlink_t* link;
     int ret, sendnum = 0;
+    char link_addr_str[64];
     for (int i = 0; i < (int)linkids.size(); ++i)
     {
         link = network_.find_link(linkids.at(i));
-        if (NULL == link)
+        if (NULL == link || !link->is_established())
         {
-            C_ERROR("findlink %d ret NULL", linkids.at(i));
+            C_ERROR("link %d not connected, plz check netlink config or net status", linkids.at(i));
             continue;
         }
 
@@ -423,12 +416,23 @@ void calypso_main_t::broadcast_by_group( int group, const char* data, size_t len
         ret = link->send(data, len);
         if (ret < 0)
         {
-            C_ERROR("send(%p, %d) failed(%d) when broadcast group %d", data, (int)len, ret, group);
+            C_ERROR("send(%p, %d) to %s failed(%d) when broadcast group %d", data, (int)len, 
+                link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)), 
+                ret, group);
+        }
+        else
+        {
+            C_TRACE("send(%p, %d) to %s in group %d succ", data, (int)len, 
+                link->get_remote_addr_str(link_addr_str, sizeof(link_addr_str)), 
+                group);
         }
     }
 
-    stat_.incr_send_bytes(len * sendnum);
-    stat_.incr_send_packs(sendnum);
+    if (sendnum > 0)
+    {
+        stat_.incr_send_bytes(len * sendnum);
+        stat_.incr_send_packs(sendnum);
+    }
 }
 
 int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, size_t len )
@@ -773,13 +777,35 @@ void calypso_main_t::reload_config()
     netlink_config_t::walk_link_callback close_link_func = std::tr1::bind(&calypso_main_t::close_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
     netlink_config_t::walk_link_callback update_link_func = std::tr1::bind(&calypso_main_t::update_link, this, tr1::placeholders::_1, tr1::placeholders::_2, tr1::placeholders::_3);
     netconfig_.walk_diff(oldcfg, close_link_func, create_link_func, update_link_func, NULL);
-    //netconfig_.walk();
+    
     return;
 }
 
 void calypso_main_t::reg_app_handler( const app_handler_t& h )
 {
     handler_ = h;
+}
+
+netlink_t* calypso_main_t::pick_rand_link( int group )
+{
+    vector<int> linkids = netconfig_.get_linkid_by_group(group);
+    netlink_t* link;
+    vector<netlink_t*> candidates;
+    for (size_t i = 0; i < linkids.size(); ++i)
+    {
+        link = network_.find_link(linkids.at(i));
+        if (link && link->is_established())
+        {
+            candidates.push_back(link);
+        }
+    }
+
+    if (candidates.empty())
+    {
+        return NULL;
+    }
+
+    return candidates[nrand(0, candidates.size()-1)];
 }
 
 void* _app_thread_main(void* args)
@@ -810,7 +836,6 @@ void* _app_thread_main(void* args)
             clen = ctx->in_->get_consume_len();
             if (clen < 0)
             {
-                // TODO: fix when broken pipe(FIND STX)
                 C_FATAL("get_consume_len ret %d, maybe broken, ABORT NOW!", clen);
                 abort();
                 break;

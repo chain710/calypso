@@ -33,19 +33,6 @@ int netlink_config_t::load( const char* config_path )
         return -1;
     }
 
-    // 遍历links，按group记录idx
-    group2idx_.clear();
-    int group;
-    for (int i = 0; i < (int)conf_["links"].size(); ++i)
-    {
-        const Json::Value& cursor = conf_["links"][i];
-        group = cursor.get("group", -1).asInt();
-        if (group >= 0)
-        {
-            group2idx_[group].push_back(i);
-        }
-    }
-
     return 0;
 }
 
@@ -77,12 +64,21 @@ int netlink_config_t::load_text( const char* config_path, std::string& text )
 
 void netlink_config_t::walk( walk_link_callback callback, void* up )
 {
+    group2idx_.clear();
     int link_size = conf_["links"].size();
     config_item_t config_item;
+    int group, link_id;
     for (int i = 0; i < link_size; ++i)
     {
-        make_config_item(conf_["links"][i], config_item);
-        conf_["links"][i]["_link_id"] = callback(conf_["links"][i].get("_link_id", -1).asInt(), config_item, up);
+        Json::Value& cursor = conf_["links"][i];
+        make_config_item(cursor, config_item);
+        link_id = callback(cursor.get("_link_id", -1).asInt(), config_item, up);
+        cursor["_link_id"] = link_id;
+        group = cursor.get("group", -1).asInt();
+        if (group >= 0 && link_id >= 1)
+        {
+            group2idx_[group].push_back(link_id);
+        }
     }
 }
 
@@ -92,6 +88,7 @@ void netlink_config_t::walk_diff( const netlink_config_t& old,
                                  const walk_link_callback& update_callback, 
                                  void* up )
 {
+    group2idx_.clear();
     Json::Value& newlinks = conf_["links"];
     string link_sig;
     typedef map<string, vector<int> > sig2ids_map_t;
@@ -129,19 +126,26 @@ void netlink_config_t::walk_diff( const netlink_config_t& old,
     }
 
     // 遍历剩下新增和没变化的
-    int link_id;
+    int link_id, group;
     for (int i = 0; i < (int)newlinks.size(); ++i)
     {
         make_config_item(newlinks[i], config_item);
         link_id = newlinks[i].get("_link_id", -1).asInt();
         if (link_id < 0)
         {
-            newlinks[i]["_link_id"] = open_callback(-1, config_item, up);
+            link_id = open_callback(-1, config_item, up);
         }
         else
         {
             // 以前就有的，更新option
-            newlinks[i]["_link_id"] = update_callback(link_id, config_item, up);
+            link_id = update_callback(link_id, config_item, up);
+        }
+
+        newlinks[i]["_link_id"] = link_id;
+        group = newlinks[i].get("group", -1).asInt();
+        if (group >= 0 && link_id >= 0)
+        {
+            group2idx_[group].push_back(link_id);
         }
     }
 }
@@ -191,27 +195,5 @@ std::vector<int> netlink_config_t::get_linkid_by_group( int group ) const
         return linkids;
     }
 
-    int linkid;
-    for (int i = 0; i < (int)it->second.size(); ++i)
-    {
-        const Json::Value& cursor = conf_["links"][it->second.at(i)];
-        linkid = cursor.get("_link_id", -1).asInt();
-        if (linkid >= 0)
-        {
-            linkids.push_back(linkid);
-        }
-    }
-
-    return linkids;
-}
-
-int netlink_config_t::get_rand_linkid_by_group( int group ) const
-{
-    std::vector<int> ids = get_linkid_by_group(group);
-    if (ids.empty())
-    {
-        return -1;
-    }
-
-    return ids.at(nrand(0, ids.size() - 1));
+    return it->second;
 }

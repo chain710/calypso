@@ -67,9 +67,11 @@ private:
     int dispatch_msg_to_app(app_thread_context_t& ctx, const msgpack_context_t& msgctx, const char* data, size_t len, const char* extrabuf);
     // 从应用线程获取消息并转发
     int process_appthread_msg(app_thread_context_t& thread_ctx);
+    // 根据group选择随机链路
+    netlink_t* pick_rand_link(int group);
     // do staff like dispatching msg, checking signal .etc
     void main();
-
+    // 重读配置
     void reload_config();
     
     dynamic_allocator_t allocator_;
