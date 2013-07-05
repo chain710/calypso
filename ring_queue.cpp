@@ -1,6 +1,7 @@
 #include "ring_queue.h"
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define RING_QUEUE_STX (0x02)
 #define RING_QUEUE_ETX (0x03)
@@ -84,6 +85,7 @@ int ring_queue_t::consume( char* data, int len )
 
     if (len < clen)
     {
+        // provided buffer not enough
         return -1;
     }
 
@@ -104,13 +106,13 @@ int ring_queue_t::get_consume_len() const
     if (rb.stx_ != RING_QUEUE_STX)
     {
         // 校验位错误，queue broken?
-        return -1;
+        abort();
     }
 
     if (get_used_len() < (int)rb.len_ + (int)sizeof(ring_block_t))
     {
         // 数据不足，broken?
-        return -1;
+        abort();
     }
 
     return rb.len_;
@@ -118,13 +120,15 @@ int ring_queue_t::get_consume_len() const
 
 int ring_queue_t::get_free_len() const
 {
-    if (write_ >= read_)
+    // prevent using mutex
+    int w = write_, r = read_;
+    if (w >= r)
     {
-        return buffer_len_ - (write_ - read_) - 1;
+        return buffer_len_ - (w - r) - 1;
     }
     else
     {
-        return read_ - write_ - 1;
+        return r - w - 1;
     }
 }
 
@@ -156,14 +160,13 @@ void ring_queue_t::consume_bytes( char* data, int len )
         int backlen = buffer_len_ - read_;
         memcpy(data, &buffer_[read_], backlen);
         memcpy(&data[backlen], buffer_, len - backlen);
-        read_ = len - backlen;
     }
     else
     {
         memcpy(data, &buffer_[read_], len);
-        read_ += len;
-        if (read_ == buffer_len_) read_ = 0;
     }
+
+    read_ = normalize_pos(read_ + len);
 }
 
 void ring_queue_t::extract_rb( ring_block_t& rb, int from ) const
@@ -215,7 +218,7 @@ int ring_queue_t::produce_append( const char* data, int len )
     extract_rb(rb, write_);
     if (rb.stx_ != RING_QUEUE_STX)
     {
-        return -1;
+        abort();
     }
 
     if (get_free_len() < len + (int)rb.len_ + (int)sizeof(rb))
