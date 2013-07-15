@@ -531,7 +531,7 @@ int netlink_t::pop_recv_buffer( int len )
 const char* netlink_t::get_local_addr_str( char* buf, int size ) const
 {
     sockaddr_in laddr;
-    socklen_t len = sizeof(laddr);  
+    socklen_t len = sizeof(laddr);
     int ret = getsockname(fd_, (sockaddr *)&laddr, &len);
     if (ret < 0)
     {
@@ -655,5 +655,12 @@ void netlink_t::update_opt( link_opt_t opt )
     {
         opt_.sys_rcvbuf_size_ = opt.sys_rcvbuf_size_;
         opt_.sys_sndbuf_size_ = opt.sys_sndbuf_size_;
+    }
+
+    if (server_link == opt.ltype_)
+    {
+        // only listening socket can update usr*bufsize
+        if (opt.usr_rcvbuf_size_ > 0) opt_.usr_rcvbuf_size_ = opt.usr_rcvbuf_size_;
+        if (opt.usr_sndbuf_size_ > 0) opt_.usr_sndbuf_size_ = opt.usr_sndbuf_size_;
     }
 }

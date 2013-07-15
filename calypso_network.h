@@ -27,7 +27,7 @@ public:
     int init(int fd_capacity, int max_fired_num, dynamic_allocator_t* allocator);
     void fina();
     // 等待epoll事件，返回事件个数
-    int wait(onevent_callback callback, void* up);
+    int wait(const onevent_callback& callback, void* up);
     void recover(int max_recover_num, int min_recover_interval);
     // NOTE: 检查connect超时用定时器实现。检查client/accept链路是否活跃，配置统一的值，而不是每个链路一个配置！
     void check_idle_netlink(int max_check_num, int max_idle_sec, int connect_timeout);

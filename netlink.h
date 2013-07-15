@@ -11,14 +11,13 @@ class netlink_t
 public:
     struct link_opt_t
     {
-        // see link_type_t
-        int ltype_;
-        int usr_sndbuf_size_;
-        int usr_rcvbuf_size_;
+        int ltype_;             // see link_type_t
+        int usr_sndbuf_size_;   // initial send buffer, extends on demand
+        int usr_rcvbuf_size_;   // initial recv buffer, extends on demand
         int sys_sndbuf_size_;
         int sys_rcvbuf_size_;
         unsigned int flag_;
-        unsigned int mask_;
+        unsigned int mask_;     // only masked control pack will be transmitted to appthread, default 0xFFFFFFFF
     };
 
     enum link_flag_t
@@ -68,6 +67,7 @@ public:
     int connect(const char* ip, unsigned short port);
     // >=0 返回收到的包长度，是否关闭用is_close判断, <0出错
     int recv();
+    // return 0 means ok, <0 means error
     int send(const char* buf, int len);
     // 关闭链路，但是不归还缓存，可以recover
     int close();

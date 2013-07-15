@@ -66,7 +66,7 @@ int calypso_network_t::init( int fd_capacity, int max_fired_num, dynamic_allocat
     return 0;
 }
 
-int calypso_network_t::wait(onevent_callback callback, void* up)
+int calypso_network_t::wait(const onevent_callback& callback, void* up)
 {
     int event_num = epoll_wait(epfd_, fired_events_, max_fired_num_, 0);
     if (event_num < 0)
@@ -132,8 +132,6 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
             {
                 events |= data_arrival_event;
             }
-
-            // link_idx
         }
 
         if (fired_events_[i].events & EPOLLOUT)
@@ -147,7 +145,6 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
                 {
                     C_ERROR("connecting sock(%s) encount error %d, close it", 
                         link->get_remote_addr_str(addr_str, sizeof(addr_str)), ret);
-                    link->close();
                     link_err = true;
                 }
                 else
@@ -164,6 +161,7 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
             }
             else if (link->has_data_in_sendbuf())
             {
+                // send remaining data
                 ret = link->send(NULL, 0);
                 if (ret < 0)
                 {
@@ -215,8 +213,8 @@ int calypso_network_t::wait(onevent_callback callback, void* up)
 
         if (link->is_closed() || link_err)
         {
-            C_WARN("netlink(fd:%d) closed or error, now move it to error list!", fired_events_[i].data.fd);
-            move_link_to_error_list(*link);
+            C_WARN("netlink(fd:%d) closed or error, shut it down!", fired_events_[i].data.fd);
+            shutdown_link(link_idx);
         }
     }
 
