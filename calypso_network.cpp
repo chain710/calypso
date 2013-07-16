@@ -117,13 +117,15 @@ int calypso_network_t::wait(const onevent_callback& callback, void* up)
                 netlink_t* parent = link;
                 C_DEBUG("new connection on %s", parent->get_local_addr_str(addr_str, sizeof(addr_str)));
                 link_idx = accept_link(*link);
-                link = link_list_->get(link_idx);
                 // accept出错暂不处理
-                if (NULL == link)
+                if (link_idx < 0)
                 {
                     C_ERROR("accept conn on %s failed %d", parent->get_local_addr_str(addr_str, sizeof(addr_str)), link_idx);
                     continue;
                 }
+                link = link_list_->get(link_idx);
+                // link should not be NULL
+                if (NULL == link) abort();
 
                 C_DEBUG("new connection from %s accepted", link->get_remote_addr_str(addr_str, sizeof(addr_str)));
                 events |= newlink_event;
