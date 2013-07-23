@@ -95,7 +95,6 @@ int calypso_network_t::wait(const onevent_callback& callback, void* up)
         link = get_link(fired_events_[i].data.fd, link_idx);
         if (NULL == link)
         {
-            // ERROR
             C_ERROR("find no netlink by fd %d", fired_events_[i].data.fd);
             continue;
         }
@@ -104,7 +103,8 @@ int calypso_network_t::wait(const onevent_callback& callback, void* up)
         {
             events |= error_event;
             int sock_errno = link->get_sock_error();
-            C_ERROR("netlink encount error, maybe reset or timeout? sockerr is %d", sock_errno);
+            C_ERROR("netlink[%d] fd(%d) encount error, maybe reset or timeout? sockerr is %d", 
+                link_idx, link->getfd(), sock_errno);
             link_err = true;
         }
 
@@ -113,11 +113,9 @@ int calypso_network_t::wait(const onevent_callback& callback, void* up)
             update_used_list(link_idx);
             if (link->get_link_type() == netlink_t::server_link)
             {
-                // NOTE:调用回调函数的参数是accept下来的link
                 netlink_t* parent = link;
                 C_DEBUG("new connection on %s", parent->get_local_addr_str(addr_str, sizeof(addr_str)));
                 link_idx = accept_link(*link);
-                // accept出错暂不处理
                 if (link_idx < 0)
                 {
                     C_ERROR("accept conn on %s failed %d", parent->get_local_addr_str(addr_str, sizeof(addr_str)), link_idx);
@@ -178,7 +176,7 @@ int calypso_network_t::wait(const onevent_callback& callback, void* up)
             }
         }
 
-        // NOTE:callback里只能调用send/recv/close，不要引起除了close以外的状态变化，否则update_list时link_idx可能已经在errorlist中了
+        // NOTE: ONLY send/recv/close allowd in callback, otherwise link_idx might already be in errorlist when update_used_list
         ret = callback(link_idx, *link, events, up);
         if (ret > 0)
         {
@@ -187,7 +185,7 @@ int calypso_network_t::wait(const onevent_callback& callback, void* up)
 
         ++envoke_num;
 
-        // 取消监听/监听epollout
+        // cancel/add epollout
         if (!link->is_closed() && !link_err && (cancel_epollout | link->has_data_in_sendbuf()))
         {
             memset(&epevent, 0, sizeof(epevent));
@@ -324,7 +322,7 @@ int calypso_network_t::init_one_link( int idx, netlink_t& node, void* up )
 
 int calypso_network_t::on_link_status_change( netlink_t& link )
 {
-    // NOTE: 仅操作epoll
+    // NOTE: ONLY operate epoll
     int ret;
     int link_idx = link_list_->get_idx(&link);
     if (link_idx < 0 || link.getfd() >= link_list_->get_length())
@@ -358,7 +356,7 @@ int calypso_network_t::on_link_status_change( netlink_t& link )
         C_DEBUG("add established fd %d to epoll succ", link.getfd());
         break;
     case netlink_t::nsc_connecting:
-        // 一次性事件
+        // one time event
         epevent.events = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLOUT | EPOLLONESHOT;
         ret = epoll_ctl(epfd_, EPOLL_CTL_ADD, link.getfd(), &epevent);
         if (ret < 0)
@@ -440,7 +438,7 @@ int calypso_network_t::recover_one_link( int idx, netlink_t& node, void* up )
         return idx;
     }
 
-    // 防止频繁recover
+    // prevent recovering frequently
     recover_link_opt_t* opt = (recover_link_opt_t*)up;
     if ( opt && nowtime_ - node.get_last_recover_time() < opt->min_recover_interval_)
     {
@@ -547,7 +545,7 @@ int calypso_network_t::check_one_link( int idx, netlink_t& node, void* up )
         if ((node.is_connecting() && sec_diff >= opt->conn_timeout_sec_)
             || sec_diff >= opt->max_idle_sec_)
         {
-            // connect超时或者idle太久，扔到error队列里重启
+            // connect timeout or idle too long, move to errorlist
             C_WARN("link(idx:%d fd:%d) idle too long(%d)", idx, node.getfd(), sec_diff);
             move_link_to_error_list(node);
         }
@@ -573,7 +571,7 @@ int calypso_network_t::create_link( const netlink_config_t::config_item_t& confi
     do 
     {
         ret = link->init(opt);
-        // 先设置参数，以免configure中途失败无法recover
+        // set param first, in case can not recover because of failure in middle of configure
         if (config.bind_ip_[0] != '\0' || config.bind_port_ > 0)
         {
             link->set_bind_addr(config.bind_ip_, config.bind_port_);

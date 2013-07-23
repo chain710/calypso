@@ -28,11 +28,11 @@ calypso_main_t::calypso_main_t()
 
 calypso_main_t::~calypso_main_t()
 {
-    // 1.销毁network
+    // 1.remove network
     network_.fina();
-    // 2.销毁动态内存分配器
+    // 2.remove dynamic allocators
     allocator_.remove_allocator();
-    // 3.销毁定长内存分配器
+    // 3.remove sub allocators
     if (subs_)
     {
         delete []subs_;
@@ -222,10 +222,10 @@ int calypso_main_t::update_link( int idx, const netlink_config_t::config_item_t&
 
 int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int evt, void* up)
 {
-    // NOTE: 链路发生异常是否要通知app线程？
+    // NOTE: should we notify appthread the error event?
     if (evt & error_event) return 0;
 
-    // TODO: 消息到工作线程路由方案?暂时固定发送到thread[0]
+    // TODO: push msg to thread[0] for now
     app_thread_context_t& cur_ctx = app_ctx_[0];
     msgpack_context_t msgpack_ctx;
     memset(&msgpack_ctx, 0, sizeof(msgpack_ctx));
@@ -297,7 +297,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
                 stat_.incr_error_conn(1);
                 return -1;
             }
-            else if (pack_len > 0)
+            else if (pack_len > 0 && pack_len <= data_len)
             {
                 stat_.incr_recv_packs(1);
                 stat_.incr_thread_recv_packs(cur_ctx.th_idx_, 1);
@@ -323,7 +323,7 @@ int calypso_main_t::on_net_event( int link_idx, netlink_t& link, unsigned int ev
             }
         }
 
-        // 最后发送链路关闭消息
+        // link closed, notify appthread
         if (closed_by_peer)
         {
             msgpack_ctx.extrabuf_len_ = 0;
@@ -450,7 +450,7 @@ int calypso_main_t::send_by_context( msgpack_context_t ctx, const char* data, si
         return -1;
     }
 
-    // 按照linklist的分配策略，相同idx且相同fd的概率很小，所以这里简单判断是否fd相等
+    // check if same link?
     if (ctx.link_fd_ != link->getfd())
     {
         char laddr_str[64];
@@ -495,14 +495,14 @@ int calypso_main_t::dispatch_msg_to_app( app_thread_context_t& ctx,
     bool rq_err = true;
     do 
     {
-        // msg上下文
+        // msg context
         int ret = ctx.in_->produce_append((const char*)&msgctx, sizeof(msgctx));
         if (ret < 0)
         {
             C_FATAL("produce msg ctx failed ret %d", ret);
             break;
         }
-        // 额外数据
+        // extra buf
         if (extrabuf && msgctx.extrabuf_len_ > 0)
         {
             ret = ctx.in_->produce_append(extrabuf, msgctx.extrabuf_len_);
@@ -710,7 +710,7 @@ int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
         }
 
         thread_ctx.out_->consume(out_msg_buf_, out_msg_buf_size_);
-        // 检查msgctx
+        // copy msgctx from bytearray
         data_len = clen - sizeof(msgctx);
         memcpy(&msgctx, out_msg_buf_, sizeof(msgctx));
         if (data_len > 0)
@@ -738,7 +738,7 @@ int calypso_main_t::process_appthread_msg(app_thread_context_t& thread_ctx)
 
         if (msgctx.flag_ & mpf_close_link)
         {
-            // 关闭链路
+            // appthread requests to shutdown this link
             C_DEBUG("app needs to shutdown this link %d", msgctx.link_ctx_);
             network_.shutdown_link(msgctx.link_ctx_);
             stat_.incr_closed_conn(1);
@@ -814,7 +814,7 @@ void* _app_thread_main(void* args)
     int handle_msg_num;
     int ret;
     msgpack_context_t msgctx;
-    int msg_buf_size = 1024;    // 初始大小
+    int msg_buf_size = 1024;    // init buf size
     char *msg_buf = new char[msg_buf_size];
     if (NULL == msg_buf)
     {
@@ -831,8 +831,7 @@ void* _app_thread_main(void* args)
         handle_msg_num = 0;
         while (true)
         {
-            // 处理inqueue消息
-            // 消息格式：[msgctx][data..]
+            // mem structure [msgctx][data..]
             clen = ctx->in_->get_consume_len();
             if (clen < 0)
             {
@@ -843,7 +842,7 @@ void* _app_thread_main(void* args)
 
             if (msg_buf_size < clen)
             {
-                // 消息缓冲长度不足，重新分配
+                // extend
                 char* newbuf = new char[clen];
                 if (NULL == newbuf)
                 {
