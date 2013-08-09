@@ -3,15 +3,13 @@
 
 /*
 {
-    // 全局分配器 [[size, capacity], ...]
+    // global allocator [[size, capacity], ...]
     "mem_allocator":[[512, 1000], [1024, 1000]], 
-    // 配置路径
+    // network config path
     "netlink_config": , 
-    // app so路径
-    "applib":,
-    // 最大fd数
+    // max fd num
     "max_link_num":,
-    // 每次处理的最大fd数
+    // max fired fd num once
     "max_fired_link_num":,
 }
  */
@@ -39,7 +37,9 @@ public:
     int get_max_link_num() const { return max_link_num_; }
     int get_max_fired_link_num() const { return max_fired_link_num_; }
     int get_thread_num() const { return thread_num_; }
+    const char* get_bootstrap_config_path() const { return bootstrap_config_path_.c_str(); }
 private:
+    std::string bootstrap_config_path_;
     std::string netlink_config_path_;
     std::string runtime_config_path_;
     alloc_conf_list_t allocator_config_;

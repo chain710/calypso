@@ -7,11 +7,14 @@ using namespace std;
 int calypso_bootstrap_config_t::load( const char* config_path )
 {
     string json_raw;
-    if (read_all_text(config_path, json_raw))
+    int ret = read_all_text(config_path, json_raw);
+    if (ret < 0)
     {
+        C_ERROR("read text from %s error(%d)", config_path, ret);
         return -1;
     }
 
+    bootstrap_config_path_ = config_path;
     Json::Value conf_root;
     Json::Reader reader;
     bool succ = reader.parse(json_raw, conf_root);

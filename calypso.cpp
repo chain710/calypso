@@ -351,7 +351,7 @@ void calypso_main_t::run()
 {
     init_rand();
     int ret;
-    ret = app_global_init();
+    ret = app_global_init(bootstrap_config_.get_bootstrap_config_path());
     if (ret < 0)
     {
         C_FATAL("app_global_init failed %d", ret);
@@ -616,7 +616,7 @@ int calypso_main_t::create_appthread(app_thread_context_t& thread_ctx)
     memset(&opt, 0, sizeof(opt));
     opt.msg_queue_ = thread_ctx.out_;
     opt.th_idx_ = thread_ctx.th_idx_;
-    thread_ctx.app_inst_ = handler_.init_(opt);
+    thread_ctx.app_inst_ = handler_.init_(opt, bootstrap_config_.get_bootstrap_config_path());
     thread_ctx.th_status_ = app_thread_context_t::app_running;
     thread_ctx.fatal_ = 0;
     thread_ctx.last_busy_time_ = 0;
